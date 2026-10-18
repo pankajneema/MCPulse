@@ -346,7 +346,7 @@ def main(argv=None):
                     (directory / (args.name + ".json")).unlink(missing_ok=True)
                 result = {"removed": args.name, "restart_required": True}
             else:
-                result = {"telegram": bool(config.get("telegram_user_id")), **{name: (directory / (name + ".json")).exists() for name in ("slack", "ntfy", "email", "whatsapp")}}
+                result = {"desktop": config.get("desktop_notifications", False), "telegram": bool(config.get("telegram_user_id")), **{name: (directory / (name + ".json")).exists() for name in ("slack", "ntfy", "email", "whatsapp")}}
         elif args.command == "rules":
             if args.action == "list":
                 result = {"remembered": api(config, "/api/rules"), "user": policy.read_rules(directory / "rules.json")}
@@ -366,7 +366,7 @@ def main(argv=None):
                     raise ValueError("Provide a command to test")
                 result = policy.evaluate({"tool_name": "Bash", "tool_input": {"command": args.value}}, policy.read_rules(directory / "rules.json"))
         elif args.command == "config":
-            allowed = {"port", "presence", "permission_timeout", "stop_timeout", "idle_away_seconds", "keep_awake", "context", "web_origin", "web_port", "daily_digest_hour", "audit_retention_days"}
+            allowed = {"port", "presence", "permission_timeout", "stop_timeout", "idle_away_seconds", "keep_awake", "desktop_notifications", "context", "web_origin", "web_port", "daily_digest_hour", "audit_retention_days"}
             if args.action == "get":
                 result = {k: v for k, v in config.items() if k in allowed}
                 if args.name:

@@ -1,6 +1,6 @@
 # Implementation status — 0.3.0a1
 
-Verification on the development Mac: 101 tests passed in the isolated Python 3.14 environment, including the optional Slack SDK checks; compileall and pip dependency checks passed. Provider transports were mocked. The dashboard was checked in the embedded browser at desktop and narrow viewport sizes, including a successful sample approval and a question reply/receipt at a narrow viewport.
+Verification on the development Mac: 107 tests passed in the isolated Python 3.14 environment, including the optional Slack SDK checks; compileall and pip dependency checks passed. Provider transports were mocked. The dashboard was checked in the embedded browser at desktop and narrow viewport sizes, including a successful sample approval and a question reply/receipt at a narrow viewport.
 
 Cross-platform checks run on GitHub for Python 3.11 and 3.14 on macOS, Windows, and Linux; see the [latest CI results](https://github.com/pankajneema/MCPulse/actions/workflows/ci.yml).
 
@@ -19,6 +19,7 @@ This file distinguishes implemented code from external validation and later prod
 | Keep-awake/services | macOS, Linux, Windows code/definitions and user commands | Real OS permissions and reboot validation |
 | Context | Bounded Claude transcript tail, task/message/steps, Git branch, session status | Multiple recorded Claude transcript versions |
 | Policy | Built-in denies, user/trusted-project regex rules, time-bounded evaluation, exact project-scoped remembered approvals | Full policy corpus/security review; prefix signatures intentionally not used |
+| Desktop notifications | Opt-in native notification adapter, metadata-only text, shared retries/deduplication, Channels status; mocked platform command tests | Visible native popup and notification-permission checks in real desktop sessions |
 | Telegram | Pairing, verified private sender, buttons, second confirmation, PIN text, replies, commands, message edits | Real bot/token smoke test |
 | Slack | Official Python SDK Socket Mode, user/channel/message binding, buttons, PIN text | Real workspace/token smoke test and richer interactive question layouts |
 | ntfy | Authenticated publish, signed confirmation view links | Real private topic verification |

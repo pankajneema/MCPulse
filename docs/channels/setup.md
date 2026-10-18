@@ -56,3 +56,7 @@ The local Channels view distinguishes **not configured**, **unverified**, **conn
 A failed optional-channel send does not block later cards in the queue. Successful sends retain their stored references so only failures retry. Slack closed-message updates also retry independently. Transport failures report generic status without credentials or provider exception text. If a provider accepted a message but its acknowledgement was lost, a retry can still produce a duplicate notification; request decisions remain first-answer-wins.
 
 Telegram, Slack, and other channel card text includes the sender-reported agent and Session ID. These identify the request for review; they are not verified agent credentials. Closed requests release in-memory sent-card/question-draft tracking.
+
+## Desktop notifications
+
+Desktop popups use the main configuration flag, not a channel credentials file. Enable with `python3 -m mcpulse config set desktop_notifications true`, then restart the daemon. Disable by setting it to `false` and restarting. See the [desktop popup walkthrough](../../README.md#desktop-popups) for platform requirements, presence behavior and testing limitations. The disposable preview does not load this adapter.

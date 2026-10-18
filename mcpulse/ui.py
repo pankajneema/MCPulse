@@ -306,11 +306,11 @@ class Dashboard:
 
     def channels(self, health):
         rows = []
-        for name in ('telegram', 'slack', 'ntfy', 'email', 'whatsapp'):
+        for name in ('desktop', 'telegram', 'slack', 'ntfy', 'email', 'whatsapp'):
             status = health.get(name, 'Not configured in this running workspace')
             badge = 'connected' if status == 'connected' else ('unverified' if status.startswith('ready;') else ('needs attention' if name in health else 'not configured'))
             rows.append('<div class="channel"><div><h3>' + esc({'ntfy':'ntfy', 'whatsapp':'WhatsApp'}.get(name, name.title())) + '</h3><span class="small muted">' + esc(status) + '</span></div><span class="tag">' + badge + '</span></div>')
-        return ''.join(rows) + '<p class="panel-body small muted">Latest adapter status. Provider acceptance does not confirm a phone notification or that a message was read. Unverified channels have not completed a delivery check in this run.</p>'
+        return ''.join(rows) + '<p class="panel-body small muted">Latest adapter status. Desktop alerts can be suppressed by OS notification settings. Provider acceptance does not confirm a phone notification or that a message was read. Unverified channels have not completed a delivery check in this run.</p>'
 
     def render(self, csrf, query):
         broker = self.server.broker
@@ -325,7 +325,7 @@ class Dashboard:
             body += '<div class="notice" role="status">Saved. Your workspace is up to date.</div>'
         cards = state['pending']
         if view == 'overview':
-            body += '<div class="metrics">' + ''.join('<div class="metric"><div class="muted">' + name + '</div><div class="value">' + str(number) + '</div><small>' + detail + '</small></div>' for name,number,detail in [('Needs your attention',len(cards),'Pending requests'),('Tracked sessions',len(state['sessions']),'Reported by session hooks'),('Connected channels',sum(v == 'connected' for k,v in state['channels'].items() if k in {'telegram','slack','ntfy','email','whatsapp'}),'Ready to deliver')]) + '</div>'
+            body += '<div class="metrics">' + ''.join('<div class="metric"><div class="muted">' + name + '</div><div class="value">' + str(number) + '</div><small>' + detail + '</small></div>' for name,number,detail in [('Needs your attention',len(cards),'Pending requests'),('Tracked sessions',len(state['sessions']),'Reported by session hooks'),('Connected channels',sum(v == 'connected' for k,v in state['channels'].items() if k in {'desktop','telegram','slack','ntfy','email','whatsapp'}),'Ready to deliver')]) + '</div>'
             options = ''.join('<option value="' + mode + '"' + (' selected' if state['presence_mode'] == mode else '') + '>' + label + '</option>' for mode,label in [('away','Away · send requests to me'),('present','Present · use the terminal'),('auto','Auto · follow my activity')])
             presence = '<section class="panel"><div class="panel-head"><h2>Your presence</h2><span class="tag">' + esc(state['presence']) + '</span></div><div class="panel-body"><form class="presence" method="post" action="/ui/presence">' + self.hidden(csrf) + '<label for="presence">Where should requests go?</label><select id="presence" name="mode">' + options + '</select><button>Update presence</button></form><p class="small muted">Switching to Present returns pending Claude hook requests to your terminal. Mode changes last until restart.</p></div></section>'
             muted = state['muted_until'] > time.time()
@@ -341,7 +341,7 @@ class Dashboard:
         elif view == 'activity':
             body += '<p class="small muted">Most recent 1,000 events. Request contents are excluded from this audit view.</p><section class="panel">' + self.activity(events) + '</section>'
         else:
-            body += '<section class="panel">' + self.channels(state['channels']) + '</section><div class="notice">Connect channels from the CLI using <code>python -m mcpulse channel</code>. Credentials are kept out of this dashboard.</div>'
+            body += '<section class="panel">' + self.channels(state['channels']) + '</section><div class="notice">Connect channels from the CLI using <code>python -m mcpulse channel</code>. Credentials are kept out of this dashboard. For desktop popups, run <code>python -m mcpulse config set desktop_notifications true</code>, then restart the daemon.</div>'
         return self.layout(title, body, csrf, view)
 
     def unavailable(self, csrf):

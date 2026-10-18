@@ -286,6 +286,9 @@ class Slack(Delivery):
 
 def configured_adapters(broker, config, directory):
     adapters = []
+    if config.get("desktop_notifications", False):
+        from .desktop import Desktop
+        adapters.append(Desktop(broker))
     for name in ("slack", "ntfy", "email", "whatsapp"):
         path = directory / (name + ".json")
         if not path.exists():

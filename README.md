@@ -83,6 +83,7 @@ flowchart TD
     Broker <--> DB[("SQLite · pending requests, receipts, audit")]
     UI["Local browser · ui.py · /ui"] <-->|"Session cookie and CSRF forms"| Broker
     Broker <-->|"Cards and verified replies"| Chat["Telegram / Slack adapters"]
+    Broker --> Desktop["Optional desktop popup · desktop.py"]
     Broker --> Push["ntfy / email / WhatsApp adapters"]
     Push --> Phone["Phone notification / confirmation link"]
     Phone --> HTTPS["User-provided HTTPS proxy or tunnel"]
@@ -115,6 +116,7 @@ The diagram shows logical data flow. The local dashboard is served by the same H
 | [`policy.py`](mcpulse/policy.py), [`context.py`](mcpulse/context.py), [`replies.py`](mcpulse/replies.py) | Permission rules, bounded context, reply parsing and PIN validation |
 | [`ui.py`](mcpulse/ui.py) | Python-rendered dashboard, forms, browser sessions and disposable preview |
 | [`telegram.py`](mcpulse/telegram.py), [`channels.py`](mcpulse/channels.py) | Provider transports, verified senders, delivery retries and channel status |
+| [`desktop.py`](mcpulse/desktop.py) | Opt-in metadata-only OS notifications, using shared delivery tracking |
 | [`web.py`](mcpulse/web.py) | Signed, expiring phone confirmation links and WhatsApp webhooks |
 | [`presence.py`](mcpulse/presence.py), [`service.py`](mcpulse/service.py) | Idle detection, explicit presence, keep-awake and optional OS service definitions |
 
@@ -234,6 +236,25 @@ Keep-awake is opt-in: caffeinate on macOS, systemd-inhibit on Linux, and the Win
 
 `start` runs in the foreground; Ctrl-C or `stop` shuts down and returns waiting hooks to Claude. `restart` preserves requests and starts the replacement in the foreground. A service manager should handle process crashes. Pending requests are persisted, expire at their original deadline, and are not silently approved after recovery. Runtime presence changes are not saved as the next startup default; set `config set presence away` or `auto` for unattended service use.
 
+## Desktop popups
+
+Desktop notifications are optional and **off by default**. Enable them for the real local daemon:
+
+```sh
+python3 -m mcpulse config set desktop_notifications true
+python3 -m mcpulse restart
+```
+
+`restart` stays in the foreground. In another terminal, use `python3 -m mcpulse away` and `python3 -m mcpulse ui`, then try `python3 -m mcpulse demo --kind question`. The popup shows the agent, project name, session and request ID. It does not include raw commands, question text, replies or login tokens. Open the dashboard to review and answer; the popup itself has no approval buttons and does not automatically open a browser.
+
+To disable, set `desktop_notifications` to `false` and restart. `channel list` reports the configured flag; the dashboard's Desktop row reports the running adapter status. Preview mode stays isolated and never sends native notifications.
+
+The Python adapter calls native tools without adding Python dependencies: macOS uses AppleScript `display notification` through `osascript`, Windows uses Windows PowerShell and a temporary Windows Forms notification icon, and Linux uses `notify-send` in a graphical session. No execution-policy changes, notification permission changes or service installation are performed. References: [Apple notification scripting](https://developer.apple.com/library/archive/documentation/LanguagesUtilities/Conceptual/MacAutomationScriptingGuide/DisplayNotifications.html), [Windows notification icons](https://learn.microsoft.com/en-us/dotnet/desktop/winforms/controls/notifyicon-component-overview-windows-forms), [GNOME notify-send source](https://github.com/GNOME/libnotify/blob/master/tools/notify-send.c).
+
+Focus/Do Not Disturb, OS notification permissions and headless/service sessions can suppress alerts even if the command succeeds. “Connected” means the adapter submitted an alert, not that it was displayed. Successfully recorded requests are not repeatedly notified across adapter restarts; ambiguous transport failures can still cause a duplicate alert. Informational/completion popups respect the notification pause; approvals and questions remain eligible. Presence rules still apply: normal Claude hooks return to the terminal in Present mode, so use Away to test the popup flow.
+
+Native command construction, configuration, retry and deduplication paths are tested with mocked OS calls on CI. Visible native popups have not yet been verified in real macOS, Windows or Linux desktop sessions.
+
 ## Channels and confirmations
 
 [Channel setup](docs/channels/setup.md) covers Telegram, Slack Socket Mode, ntfy, SMTP email, WhatsApp Cloud API, delayed escalation, and quiet hours. Configure channel files with:
@@ -280,7 +301,7 @@ python3 -m venv .venv
 
 Omit `[slack]` for a core install without runtime dependencies. On Windows use `.venv\Scripts\python` and `.venv\Scripts\mcpulse`. Run directly from source with `python3 -m mcpulse` if you do not want an installation.
 
-The current suite contains **101 tests**, including optional Slack SDK checks. [GitHub CI](https://github.com/pankajneema/MCPulse/actions/workflows/ci.yml) runs Python 3.11 and 3.14 on Linux, macOS and Windows.
+The current suite contains **107 tests**, including optional Slack SDK checks. [GitHub CI](https://github.com/pankajneema/MCPulse/actions/workflows/ci.yml) runs Python 3.11 and 3.14 on Linux, macOS and Windows.
 
 Tests use temporary homes, real loopback HTTP, subprocess CLI/MCP sessions, SQLite recovery, signed confirmation pages, and mocked provider transports. They do not send real messages, install services, or alter your Claude settings. Optional Slack tests use its installed SDK without connecting to a workspace.
 

@@ -2,6 +2,8 @@
 
 ## 0.3.0a1
 
+- Added opt-in desktop popup notifications for macOS, Windows and graphical Linux sessions, with metadata-only alerts, shared delivery deduplication/retries, configuration validation and dashboard status. Native OS calls are covered by mocks; real desktop verification remains pending.
+
 - Isolated optional-channel send and Slack update failures so one rejected message cannot block later requests; retained successful-send deduplication.
 - Distinguished unverified channel setup from successful provider contact, added agent/session labels to channel cards, and cleaned up closed request tracking.
 

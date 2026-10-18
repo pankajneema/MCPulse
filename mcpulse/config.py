@@ -73,7 +73,8 @@ def load(directory: Path) -> dict:
     config.setdefault("trusted_projects", [])
     if not isinstance(config["trusted_projects"], list) or not all(isinstance(p, str) for p in config["trusted_projects"]):
         raise ValueError("Invalid trusted_projects")
-    for name in ("keep_awake", "context"):
+    config.setdefault("desktop_notifications", False)
+    for name in ("keep_awake", "context", "desktop_notifications"):
         if name in config and type(config[name]) is not bool:
             raise ValueError("Invalid " + name)
     if "daily_digest_hour" in config and config["daily_digest_hour"] is not None and (type(config["daily_digest_hour"]) is not int or not 0 <= config["daily_digest_hour"] <= 23):

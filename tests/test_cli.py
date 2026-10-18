@@ -9,6 +9,7 @@ import time
 import unittest
 
 from mcpulse.config import initialize, private_write
+from mcpulse.client import api
 
 
 class CLITests(unittest.TestCase):
@@ -36,10 +37,16 @@ class CLITests(unittest.TestCase):
             try:
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
-                    status = run("status")
-                    if status.returncode == 0:
+                    try:
+                        api(config, "/api/status", timeout=0.2)
                         break
-                    time.sleep(0.02)
+                    except ConnectionError:
+                        if daemon.poll() is not None:
+                            self.fail("Daemon exited before becoming ready")
+                        time.sleep(0.02)
+                else:
+                    self.fail("Daemon did not become ready within five seconds")
+                status = run("status")
                 self.assertEqual(status.returncode, 0, status.stderr)
                 dashboard = run("ui", "--no-open")
                 self.assertEqual(dashboard.returncode, 0, dashboard.stderr)
@@ -67,6 +74,8 @@ class CLITests(unittest.TestCase):
                     demo.communicate()
                 daemon.terminate()
                 stdout, stderr = daemon.communicate(timeout=20)
+                if sys.exception() is not None:
+                    sys.exception().add_note("Daemon output:\n" + stdout + stderr)
             if os.name != "nt":
                 self.assertEqual(daemon.returncode, 0, stderr)
                 self.assertEqual((root / "audit.sqlite3").stat().st_mode & 0o777, 0o600)

@@ -3,6 +3,7 @@ import json
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, build_opener, ProxyHandler
 
@@ -81,3 +82,17 @@ class HTTPTests(unittest.TestCase):
         request = self.broker.open(payload())
         self.assertEqual(self.request("/hook/SessionEnd", {"hook_event_name": "SessionEnd", "session_id": "test-session"})[0], 200)
         self.assertEqual(request.state, "CANCELLED")
+
+
+class StartupTests(unittest.TestCase):
+    def test_loopback_listeners_do_not_require_reverse_dns(self):
+        from mcpulse.web import WebServer
+        broker = Broker(":memory:")
+        self.addCleanup(broker.close)
+        with patch("socket.getfqdn", side_effect=AssertionError("Reverse DNS must not block loopback startup")):
+            for server in (Server(broker, "test-key", 0), WebServer(broker, {"web_port": 0})):
+                try:
+                    self.assertEqual(server.server_name, "127.0.0.1")
+                    self.assertGreater(server.server_port, 0)
+                finally:
+                    server.server_close()

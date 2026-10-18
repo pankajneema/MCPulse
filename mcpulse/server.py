@@ -2,6 +2,7 @@
 
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 import json
 import threading
 
@@ -10,7 +11,15 @@ from .core import Broker, RequestError, Pending, validate_event, preview
 MAX_BODY = 65536
 
 
-class Server(ThreadingHTTPServer):
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # These listeners use a numeric loopback address; reverse DNS is unnecessary
+        # and can block startup when the host resolver is unavailable.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
+class Server(LoopbackHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 

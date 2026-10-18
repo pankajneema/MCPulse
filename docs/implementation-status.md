@@ -1,12 +1,14 @@
 # Implementation status — 0.3.0a1
 
-Verification on the development Mac: 81 tests passed in the isolated Python 3.14 environment, including the optional Slack SDK checks; compileall and pip dependency checks passed. Provider transports were mocked. The dashboard was checked in the embedded browser at desktop and narrow viewport sizes, including a successful sample approval.
+Verification on the development Mac: 82 tests passed in the isolated Python 3.14 environment, including the optional Slack SDK checks; compileall and pip dependency checks passed. Provider transports were mocked. The dashboard was checked in the embedded browser at desktop and narrow viewport sizes, including a successful sample approval.
+
+Cross-platform checks run on GitHub for Python 3.11 and 3.14 on macOS, Windows, and Linux; see the [latest CI results](https://github.com/pankajneema/MCPulse/actions/workflows/ci.yml).
 
 This file distinguishes implemented code from external validation and later product phases. It does not mark the user's full product request complete.
 
 | Area | Implemented | Remaining |
 |---|---|---|
-| Python foundation | CLI, package/wheel, stdlib core, optional official Slack SDK, CI definition | CI remote runs and signed binary distribution |
+| Python foundation | CLI, package/wheel, stdlib core, optional official Slack SDK, CI definition | Signed binary distribution |
 | Permission loop | Allow, exact Always, deny/reason, edit with policy recheck, stop, timeout, hand-back, first answer wins | Recorded live Claude fixtures and real-session smoke tests |
 | Questions | PreToolUse updatedInput, original questions retained, choices/multi-select/custom text, Telegram sequential cards | Live Claude and provider UX verification |
 | Completion | Stop follow-up instructions, Done, recursion guard | Real session latency/timeout behavior |

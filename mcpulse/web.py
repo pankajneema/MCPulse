@@ -3,7 +3,7 @@ import base64
 import hashlib
 import hmac
 import html
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import json
 import secrets
 import threading
@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .replies import valid_pin
 from .core import RequestError
+from .server import LoopbackHTTPServer
 from .ui import standalone, card_details
 
 
@@ -50,7 +51,7 @@ def links(broker, card, origin):
     return {action: origin.rstrip("/") + "/r/" + issue(broker.config["secret"], card["id"], action, expires) for action in actions}
 
 
-class WebServer(ThreadingHTTPServer):
+class WebServer(LoopbackHTTPServer):
     daemon_threads = True
     def __init__(self, broker, config, whatsapp=None):
         self.broker, self.config, self.whatsapp = broker, config, whatsapp

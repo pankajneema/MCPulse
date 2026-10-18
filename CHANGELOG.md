@@ -2,6 +2,8 @@
 
 ## 0.3.0a1
 
+- Fixed loopback startup dependency on reverse DNS, bounded CLI startup polling, and portable service-path CI checks.
+
 - Added a Python-rendered local dashboard with request review, search/filtering, native question forms, follow-ups, sessions, channels, presence, and activity.
 - Added `ui` with short-lived single-use login tickets, bounded browser sessions, CSRF checks, Host/Origin validation, and PIN-confirmed high-risk approvals.
 - Added `preview` for disposable sample data without configuring integrations or sending messages.

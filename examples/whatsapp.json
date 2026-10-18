@@ -1,0 +1,9 @@
+{
+  "token": "REPLACE_META_ACCESS_TOKEN",
+  "phone_number_id": "1234567890",
+  "recipient": "919876543210",
+  "api_version": "v23.0",
+  "app_secret": "REPLACE_META_APP_SECRET",
+  "verify_token": "REPLACE_RANDOM_VERIFICATION_SECRET",
+  "after_seconds": 120
+}

@@ -1,0 +1,7 @@
+{
+  "bot_token": "REPLACE_XOXB_TOKEN",
+  "app_token": "REPLACE_XAPP_TOKEN",
+  "user_id": "U_REPLACE",
+  "channel_id": "D_REPLACE",
+  "after_seconds": 0
+}

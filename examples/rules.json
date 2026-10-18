@@ -1,0 +1,5 @@
+[
+  {"tool": "^Bash$", "match": "^git status$", "action": "allow", "note": "Explicitly trusted status check"},
+  {"tool": "^Bash$", "match": "\\b(prod|production)\\b", "action": "deny", "note": "Production operations need the terminal"},
+  {"tool": ".*", "match": ".*", "action": "ask"}
+]

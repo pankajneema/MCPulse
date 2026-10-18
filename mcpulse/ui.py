@@ -305,7 +305,12 @@ class Dashboard:
         return '<div class="table-wrap"><table><thead><tr><th>Event</th><th>Request</th><th>Source</th><th>Local time</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
 
     def channels(self, health):
-        return ''.join('<div class="channel"><div><h3>' + esc(name.title()) + '</h3><span class="small muted">' + esc(health.get(name, 'Not connected')) + '</span></div><span class="tag">' + ('connected' if health.get(name) == 'connected' else 'offline') + '</span></div>' for name in ('telegram', 'slack', 'ntfy', 'email', 'whatsapp'))
+        rows = []
+        for name in ('telegram', 'slack', 'ntfy', 'email', 'whatsapp'):
+            status = health.get(name, 'Not configured in this running workspace')
+            badge = 'connected' if status == 'connected' else ('unverified' if status.startswith('ready;') else ('needs attention' if name in health else 'not configured'))
+            rows.append('<div class="channel"><div><h3>' + esc({'ntfy':'ntfy', 'whatsapp':'WhatsApp'}.get(name, name.title())) + '</h3><span class="small muted">' + esc(status) + '</span></div><span class="tag">' + badge + '</span></div>')
+        return ''.join(rows) + '<p class="panel-body small muted">Latest adapter status. Provider acceptance does not confirm a phone notification or that a message was read. Unverified channels have not completed a delivery check in this run.</p>'
 
     def render(self, csrf, query):
         broker = self.server.broker

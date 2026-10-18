@@ -31,6 +31,8 @@ class TelegramTests(unittest.TestCase):
         request = self.broker.open(payload())
         self.telegram.sync_cards()
         self.assertEqual(self.telegram.calls[0][0], "sendMessage")
+        self.assertIn("Agent: Claude CLI", self.telegram.calls[0][1]["text"])
+        self.assertIn("Session ID: test-session", self.telegram.calls[0][1]["text"])
         self.telegram.handle(callback(request))
         self.assertEqual(request.state, "ALLOWED")
         self.telegram.sync_cards()
@@ -90,6 +92,20 @@ class TelegramTests(unittest.TestCase):
         self.assertEqual(self.broker.wait(request), {})
 
 class TelegramQuestionTests(unittest.TestCase):
+    def test_question_identity_and_closed_draft_cleanup(self):
+        from tests.test_workflows import question
+        broker = Broker(":memory:", "away", config={"context": False})
+        self.addCleanup(broker.close)
+        request = broker.open({**question(), "agent":"claude-cowork"})
+        telegram = FakeTelegram(broker)
+        text = telegram.card_text(request.card)
+        self.assertIn("Agent: Claude Cowork", text)
+        self.assertIn("Session ID: " + request.card["session"], text)
+        self.assertIn(request.id, telegram.question_answers)
+        broker.answer(request.id, "handback", "test")
+        telegram.sync_cards()
+        self.assertNotIn(request.id, telegram.question_answers)
+
     def test_multiple_questions_and_numeric_labels(self):
         from tests.test_workflows import question
         broker = Broker(":memory:", "away", config={"context": False})

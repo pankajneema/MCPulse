@@ -238,3 +238,11 @@ class DashboardTests(unittest.TestCase):
             status, body, _ = self.get('/ui/request/' + request.id)
             self.assertEqual(status, 200)
             self.assertIn('Approval saved' if saved else 'Allow once', body)
+
+    def test_channels_distinguish_unverified_from_connected(self):
+        self.login()
+        self.broker.channel_health.update(ntfy='ready; delivery not yet verified', slack='1 delivery/update failed; retrying', telegram='connected')
+        body = self.get('/ui?view=channels')[1]
+        for label in ('unverified', 'needs attention', 'not configured', 'connected'):
+            self.assertIn('class="tag">' + label, body)
+        self.assertIn('Provider acceptance does not confirm', body)

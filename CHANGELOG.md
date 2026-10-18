@@ -2,6 +2,9 @@
 
 ## 0.3.0a1
 
+- Isolated optional-channel send and Slack update failures so one rejected message cannot block later requests; retained successful-send deduplication.
+- Distinguished unverified channel setup from successful provider contact, added agent/session labels to channel cards, and cleaned up closed request tracking.
+
 - Added persistent result receipts with agent/session metadata, explicit closed/expired states, safe duplicate form submissions, status-first retry guidance, and preserved validation input.
 - Added a preview-first setup and recovery guide.
 

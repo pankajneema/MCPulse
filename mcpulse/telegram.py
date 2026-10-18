@@ -47,9 +47,10 @@ class Telegram:
             question = questions[index]
             options = "\n".join(f"{i + 1}. {o['label']}" for i, o in enumerate(question.get("options", [])))
             return (f"MCPulse · {card['id']} · Question {index + 1} of {len(questions)}\n{card['project']}\n"
+                    f"Agent: {card.get('agent', 'Unknown agent')}\nSession ID: {card.get('session', 'Unavailable')}\n"
                     f"{question['question']}\n{options}\nReply with your own answer" + (" or numbers such as 1,3." if question.get("multiSelect") else " or an option number."))[:3800]
         warning = "\nMasked/shortened input: use the terminal." if not card["can_allow"] else ""
-        return (f"MCPulse · {card['id']} · {card.get('kind', 'permission')}\nProject: {card['project']}\nSession: {card['session']}\n"
+        return (f"MCPulse · {card['id']} · {card.get('kind', 'permission')}\nProject: {card['project']}\nAgent: {card.get('agent', 'Unknown agent')}\nSession ID: {card['session']}\n"
                 f"Tool: {card['tool']} · Risk: {card['risk']}\nBranch: {context.get('branch', '')}\n"
                 f"Task: {context.get('task', '')}\nLatest: {context.get('last_message', '')}\n\n{card['input']}{warning}")[:3800]
 
@@ -85,6 +86,7 @@ class Telegram:
     def sync_cards(self):
         delivery_failed = False
         cards = {card["id"]: card for card in self.broker.status()["pending"]}
+        self.question_answers = {rid: answers for rid, answers in self.question_answers.items() if rid in cards}
         for request_id, card in cards.items():
             if request_id in self.messages:
                 continue

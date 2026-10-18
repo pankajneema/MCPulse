@@ -48,3 +48,11 @@ Inbound bodies are verified with the Meta HMAC signature, the configured busines
 ## Escalation and quiet hours
 
 Optional Slack/ntfy/email/WhatsApp configuration supports `after_seconds` (0–86400). A later adapter sends only while the request is still open. `quiet_hours: [23, 7]` suppresses that channel from 23:00 until 07:00 in the machine's local timezone. Telegram delivers immediately. First answer wins across all channels. An ambiguous network send failure can create duplicate messages; closed request ids remain unanswerable.
+
+## Delivery status and retries
+
+The local Channels view distinguishes **not configured**, **unverified**, **connected**, and **needs attention**. Optional adapters start unverified until a send or message update succeeds in the current run; an empty queue, delayed delivery, or a stored message reference is not a new connectivity check. Telegram also checks its polling connection. These are the latest adapter observations, not continuous network probes or proof of phone delivery/read status. Strict diagnostics report unverified channels as not yet healthy.
+
+A failed optional-channel send does not block later cards in the queue. Successful sends retain their stored references so only failures retry. Slack closed-message updates also retry independently. Transport failures report generic status without credentials or provider exception text. If a provider accepted a message but its acknowledgement was lost, a retry can still produce a duplicate notification; request decisions remain first-answer-wins.
+
+Telegram, Slack, and other channel card text includes the sender-reported agent and Session ID. These identify the request for review; they are not verified agent credentials. Closed requests release in-memory sent-card/question-draft tracking.

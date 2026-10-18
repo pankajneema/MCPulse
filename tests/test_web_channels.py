@@ -96,6 +96,49 @@ class ChannelTests(unittest.TestCase):
         self.assertTrue(all(a["action"] == "view" for a in post.call_args.args[1]["actions"]))
         self.assertEqual(request.state, "OPEN")
 
+    def test_failed_card_does_not_starve_others_and_only_failures_retry(self):
+        first = self.broker.open(payload())
+        second = self.broker.open(payload())
+        adapter = Delivery(self.broker, {}, "ntfy")
+        with patch.object(adapter, "send", side_effect=[RuntimeError("private token"), None]) as send:
+            adapter.sync_cards()
+            self.assertEqual(send.call_count, 2)
+        self.assertIsNone(self.broker.message_ref("ntfy", first.id))
+        self.assertTrue(self.broker.message_ref("ntfy", second.id))
+        self.assertEqual(self.broker.channel_health["ntfy"], "1 delivery/update failed; retrying")
+        self.assertEqual(first.state, "OPEN")
+        with patch.object(adapter, "send") as send:
+            adapter.sync_cards()
+            self.assertEqual([c.args[0]["id"] for c in send.call_args_list], [first.id])
+        self.assertEqual(self.broker.channel_health["ntfy"], "connected")
+        self.broker.answer(first.id, "handback", "test")
+        self.broker.answer(second.id, "handback", "test")
+        adapter.sync_cards()
+        self.assertFalse(adapter.sent)
+
+    def test_idle_delayed_and_recovered_channels_are_not_falsely_connected(self):
+        adapter = Delivery(self.broker, {}, "ntfy")
+        adapter.sync_cards()
+        self.assertEqual(self.broker.channel_health["ntfy"], "ready; delivery not yet verified")
+        request = self.broker.open(payload())
+        adapter.config["after_seconds"] = 300
+        with patch.object(adapter, "send") as send:
+            adapter.sync_cards()
+            send.assert_not_called()
+        self.assertNotEqual(self.broker.channel_health["ntfy"], "connected")
+        adapter.config.clear()
+        self.broker.message_ref("ntfy", request.id, True)
+        with patch.object(adapter, "send") as send:
+            adapter.sync_cards()
+            send.assert_not_called()
+        self.assertNotEqual(self.broker.channel_health["ntfy"], "connected")
+
+    def test_channel_content_includes_agent_and_session(self):
+        request = self.broker.open({**payload(), "agent":"opencode"})
+        text, _ = Delivery(self.broker, {}, "slack").content(request.card)
+        self.assertIn("Agent: OpenCode", text)
+        self.assertIn("Session ID: test-session", text)
+
     def test_whatsapp_signature_identity_and_replay(self):
         config = {"app_secret": "secret", "phone_number_id": "777", "recipient": "123"}
         adapter = WhatsApp(self.broker, config)

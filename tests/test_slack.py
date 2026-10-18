@@ -1,6 +1,7 @@
 import importlib.util
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from mcpulse.channels import Slack
 from mcpulse.core import Broker
@@ -47,3 +48,17 @@ class SlackTests(unittest.TestCase):
         nonce = self.slack.confirmations[request.id][0]
         self.slack.receive(self.client, self.click(f"confirm:{request.id}:{nonce}"))
         self.assertEqual(request.state, "ALLOWED")
+
+    def test_failed_closed_message_update_does_not_block_other_updates(self):
+        self.slack.refs = {"a" * 16: "100.1", "b" * 16: "100.2"}
+        self.slack.confirmations = {"b" * 16: ("nonce", 0)}
+        with patch.object(self.web, "chat_update", side_effect=[RuntimeError(), None]) as update:
+            self.slack.sync_cards()
+            self.assertEqual(update.call_count, 2)
+        self.assertEqual(self.slack.refs, {"a" * 16: "100.1"})
+        self.assertFalse(self.slack.confirmations)
+        with patch.object(self.web, "chat_update") as update:
+            self.slack.sync_cards()
+            update.assert_called_once()
+        self.assertFalse(self.slack.refs)
+        self.assertEqual(self.broker.channel_health["slack"], "connected")

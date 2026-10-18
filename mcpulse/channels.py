@@ -61,7 +61,7 @@ class Delivery:
         self.sent = set()
 
     def content(self, card):
-        text = (f"MCPulse · {card['id']} · {card['kind']}\n{card['project']}\n{card['tool']} ({card['risk']})\n{card['input']}")
+        text = (f"MCPulse · {card['id']} · {card['kind']}\n{card['project']}\nAgent: {card.get('agent', 'Unknown agent')}\nSession ID: {card.get('session', 'Unavailable')}\n{card['tool']} ({card['risk']})\n{card['input']}")
         return text, links(self.broker, card, self.broker.config.get("web_origin", "")) if self.broker.config.get("web_origin") else {}
 
     def send(self, card):
@@ -90,36 +90,58 @@ class Delivery:
                 body.update(type="text", text={"body": combined[:4000], "preview_url": False})
             post(f"https://graph.facebook.com/{self.config['api_version']}/{self.config['phone_number_id']}/messages", body, {"Authorization": "Bearer " + self.config["token"]})
 
+    def sync_cards(self):
+        cards = self.broker.status()["pending"]
+        open_ids = {card["id"] for card in cards}
+        self.sent.intersection_update(open_ids)
+        failed, accepted = 0, 0
+        for card in cards:
+            if self.stopped.is_set():
+                break
+            if card["id"] in self.sent or time.time() - card["created"] < self.config.get("after_seconds", 0):
+                continue
+            try:
+                saved = self.broker.message_ref(self.name, card["id"])
+                if saved:
+                    if self.name == "slack":
+                        self.refs[card["id"]] = saved
+                    self.sent.add(card["id"])
+                    continue
+                quiet = self.config.get("quiet_hours")
+                hour = time.localtime().tm_hour
+                if quiet and (quiet[0] <= hour < quiet[1] if quiet[0] < quiet[1] else hour >= quiet[0] or hour < quiet[1]):
+                    continue
+                if card["kind"] in {"notification", "finished"} and time.time() < self.broker.muted_until:
+                    continue
+                self.send(card)
+                if self.name != "slack":
+                    self.broker.message_ref(self.name, card["id"], True)
+                self.sent.add(card["id"])
+                accepted += 1
+            except Exception:
+                # A rejected card must not prevent other requests from reaching the user.
+                failed += 1
+        if self.name == "slack":
+            for rid in list(self.refs):
+                if rid not in open_ids:
+                    try:
+                        self.client.web_client.chat_update(channel=self.config["channel_id"], ts=self.refs[rid], text="MCPulse · " + rid + " · closed", blocks=[])
+                        del self.refs[rid]
+                        self.confirmations.pop(rid, None)
+                        accepted += 1
+                    except Exception:
+                        failed += 1
+        if failed:
+            self.broker.channel_health[self.name] = f"{failed} delivery/update failed; retrying"
+        elif accepted:
+            self.broker.channel_health[self.name] = "connected"
+        elif self.broker.channel_health.get(self.name) != "connected":
+            self.broker.channel_health[self.name] = "ready; delivery not yet verified"
+
     def run(self):
         while not self.stopped.is_set():
             try:
-                for card in self.broker.status()["pending"]:
-                    if self.stopped.is_set():
-                        break
-                    if card["id"] in self.sent or time.time() - card["created"] < self.config.get("after_seconds", 0):
-                        continue
-                    if self.broker.message_ref(self.name, card["id"]):
-                        if self.name == "slack":
-                            self.refs[card["id"]] = self.broker.message_ref(self.name, card["id"])
-                        self.sent.add(card["id"])
-                        continue
-                    quiet = self.config.get("quiet_hours")
-                    hour = time.localtime().tm_hour
-                    if quiet and (quiet[0] <= hour < quiet[1] if quiet[0] < quiet[1] else hour >= quiet[0] or hour < quiet[1]):
-                        continue
-                    if card["kind"] in {"notification", "finished"} and time.time() < self.broker.muted_until:
-                        continue
-                    self.send(card)
-                    self.sent.add(card["id"])
-                    if self.name != "slack":
-                        self.broker.message_ref(self.name, card["id"], True)
-                if self.name == "slack":
-                    open_ids = {c["id"] for c in self.broker.status()["pending"]}
-                    for rid in list(self.refs):
-                        if rid not in open_ids:
-                            self.client.web_client.chat_update(channel=self.config["channel_id"], ts=self.refs[rid], text="MCPulse · " + rid + " · closed", blocks=[])
-                            del self.refs[rid]
-                self.broker.channel_health[self.name] = "connected"
+                self.sync_cards()
             except Exception:
                 self.broker.channel_health[self.name] = "unavailable; retrying"
             self.stopped.wait(2)

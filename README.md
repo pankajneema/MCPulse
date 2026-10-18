@@ -8,24 +8,145 @@ No Node or Bun. The core and Telegram use the Python standard library; optional 
 
 For a step-by-step preview, local setup, and recovery walkthrough, read the [setup guide](docs/setup.md).
 
-## Start
+## Quick start
+
+Requires **Python 3.11+** and Git to clone the repository. The core runs directly from source. On Windows, replace `python3` with `py -3`; no Node, Bun, or frontend build is required.
+
+### 1. Get the code
 
 ```sh
-cd /Users/mac/pnkj/MCPulse
+git clone https://github.com/pankajneema/MCPulse.git
+cd MCPulse
+python3 --version
+```
+
+If you already have the repository, open a terminal in its root instead. Use that same checkout and Python executable for the commands below.
+
+### 2. Try the UI without installing integrations
+
+```sh
+python3 -m mcpulse preview
+```
+
+Keep this terminal open. The browser opens the local demo on port **7720**. Review a sample question, select an option, and send a reply to see its result receipt. This mode uses an in-memory database, changes no user configuration, sends no messages, and executes no sample commands. Ctrl-C stops it; restart to reset samples. Use `preview --port 7721` if the default port is busy.
+
+For code development only, preview plus the [tests](#install-and-test) is sufficient. The following steps create local configuration or connect integrations when you choose to run them.
+
+### 3. Start your local workspace
+
+In terminal A:
+
+```sh
 python3 -m mcpulse setup
 python3 -m mcpulse start
 ```
 
-In another terminal, from this repository:
+`setup` creates private configuration in `~/.config/mcpulse`. The daemon runs in the foreground on port **7717**. Keep terminal A open.
+
+In terminal B, from the same repository:
 
 ```sh
 python3 -m mcpulse away
-python3 -m mcpulse demo
+python3 -m mcpulse ui
 ```
 
-The demo waits without executing a command. In another terminal, use `status` to find its id, then `answer REQUEST_ID allow`. Try `demo --kind question` and `demo --kind finished` too.
+`away` routes waiting hook requests to your configured channels and local review flow. `ui` opens a private browser session for the running daemon. Use `--home /absolute/path` **before the subcommand** in every terminal if you want a separate configuration directory.
 
-For Telegram, stop the daemon and run `python3 -m mcpulse setup --guided`. Paste the bot token at the hidden prompt, then send the displayed one-time pairing code to the bot in a **private** chat. Restart the daemon, switch it to `away`, and run the demo. Existing users can retain `setup --telegram-user NUMERIC_ID`.
+### 4. Verify the approval loop
+
+In terminal B:
+
+```sh
+python3 -m mcpulse demo --kind question
+```
+
+The command waits. Refresh the dashboard, open the request, check its **Agent** and **Session ID**, and reply. The terminal prints the returned response; the browser shows **Reply saved**. Try `demo --kind permission` and `demo --kind finished` for the other flows. Demo commands do not execute tool actions, but configured channels can receive their notifications.
+
+For a CLI-only check, open another terminal and run `python3 -m mcpulse status`, then `python3 -m mcpulse answer REQUEST_ID allow` for the sample permission request.
+
+### 5. Add integrations when ready
+
+Follow [Claude integration](#install-the-claude-integration) for hooks/MCP and [channel setup](#channels-and-confirmations) for Telegram, Slack, ntfy, email, or WhatsApp. Installation is separate from preview. Run [diagnostics](#check-setup-without-installing-anything) after configuring them; real delivery must be verified on your own account/device.
+
+## Architecture
+
+MCPulse is a **single-machine Python application**. A long-running local daemon owns request state, policy checks, delivery adapters and the dashboard. Hook/MCP client processes submit requests to it and wait for a result. A hosted relay or account service is not part of this implementation.
+
+```mermaid
+flowchart TD
+    Claude["Claude Code hooks"] --> Bridge["Python hook bridge · client.py"]
+    Agent["MCP client"] --> MCP["stdio MCP server · mcp.py"]
+    Bridge <-->|"Authenticated submit / poll"| API["Local HTTP API · server.py · 7717"]
+    MCP <-->|"Authenticated submit / poll"| API
+    API <--> Broker["Request lifecycle · core.py"]
+    Broker --> Policy["Policy and context · policy.py / context.py"]
+    Broker <--> DB[("SQLite · pending requests, receipts, audit")]
+    UI["Local browser · ui.py · /ui"] <-->|"Session cookie and CSRF forms"| Broker
+    Broker <-->|"Cards and verified replies"| Chat["Telegram / Slack adapters"]
+    Broker --> Push["ntfy / email / WhatsApp adapters"]
+    Push --> Phone["Phone notification / confirmation link"]
+    Phone --> HTTPS["User-provided HTTPS proxy or tunnel"]
+    HTTPS --> Web["Signed confirmation listener · web.py · 7718"]
+    Web --> Broker
+    Presence["Presence and keep-awake · presence.py"] --> Broker
+```
+
+The diagram shows logical data flow. The local dashboard is served by the same HTTP server as the API, but uses separate browser authentication. Telegram and Slack return verified replies through their adapters; WhatsApp also accepts signed inbound webhooks through the confirmation listener. Outbound provider traffic is separate from the loopback API.
+
+### Request lifecycle
+
+1. The command hook or MCP tool submits a request with an ID, project, session and optional agent name. Direct HTTP hooks are also available.
+2. The broker validates the payload, evaluates applicable permission rules, builds a redacted preview and persists requests that need review. Presence can return Claude hook requests to the terminal.
+3. The dashboard and configured adapters present the request. Optional channel delays/quiet hours apply; one failed send does not prevent later cards from being attempted.
+4. A browser form, authenticated CLI call or verified channel reply asks the broker to resolve it. Policy, preview and high-risk confirmation checks apply before approval. A shared lock makes the first accepted decision final.
+5. The waiting client receives the stored response. The dashboard keeps a result receipt. Timeout, cancellation, session end and return-to-terminal close the request without granting approval.
+
+“Reply saved” confirms local persistence, not agent delivery. Likewise, provider acceptance does not prove that a phone displayed or a person read a notification. A retry after an uncertain provider response can duplicate a notification, but cannot create a second decision for the same request.
+
+### Components and responsibilities
+
+| Source | Responsibility |
+|---|---|
+| [`cli.py`](mcpulse/cli.py), [`config.py`](mcpulse/config.py) | Commands, setup, diagnostics, private configuration and daemon startup |
+| [`hooks.py`](mcpulse/hooks.py), [`client.py`](mcpulse/client.py) | Hook installation, authenticated local calls and reconnecting result polling |
+| [`mcp.py`](mcpulse/mcp.py) | stdio JSON-RPC lifecycle, tools, concurrent calls and cancellation |
+| [`server.py`](mcpulse/server.py) | Loopback API, event dispatch and bounded HTTP request handling |
+| [`core.py`](mcpulse/core.py) | Request state, first-answer-wins, SQLite recovery, sessions, receipts and audit |
+| [`policy.py`](mcpulse/policy.py), [`context.py`](mcpulse/context.py), [`replies.py`](mcpulse/replies.py) | Permission rules, bounded context, reply parsing and PIN validation |
+| [`ui.py`](mcpulse/ui.py) | Python-rendered dashboard, forms, browser sessions and disposable preview |
+| [`telegram.py`](mcpulse/telegram.py), [`channels.py`](mcpulse/channels.py) | Provider transports, verified senders, delivery retries and channel status |
+| [`web.py`](mcpulse/web.py) | Signed, expiring phone confirmation links and WhatsApp webhooks |
+| [`presence.py`](mcpulse/presence.py), [`service.py`](mcpulse/service.py) | Idle detection, explicit presence, keep-awake and optional OS service definitions |
+
+### Listeners and state
+
+| Default address | Purpose | Access |
+|---|---|---|
+| `127.0.0.1:7717` | Daemon API and `/ui` dashboard | API key for CLI/hooks; single-use login and session cookie for browser |
+| `127.0.0.1:7718` | Optional phone confirmation/webhook listener | Signed links or verified webhooks; user supplies HTTPS hosting/proxy |
+| `127.0.0.1:7720` | Disposable UI preview | Local browser login; sample data only |
+
+The daemon stores state in `audit.sqlite3` beneath the configuration directory. SQLite WAL and a shared lifecycle lock coordinate requests. Pending payloads survive a preserved restart; completed raw payloads/detailed cards are logically cleared. Minimal receipt metadata and hook responses remain for up to 24 hours; audit metadata defaults to 30 days. Browser sessions are in memory and require a fresh login after restart. Protect state files and backups; see [security and retention](SECURITY.md).
+
+## UI design
+
+The interface is implemented in `ui.py` as Python-rendered HTML, shared CSS and native browser forms. It uses a light neutral background, green actions, white content panels and restrained status tags. System fonts and text icons keep the runtime independent of asset CDNs and JavaScript tooling.
+
+| View | User task |
+|---|---|
+| Overview | See pending work, recent activity, presence and tracked sessions |
+| Requests | Search by agent/session/project/tool/content and filter by request kind |
+| Request review | Inspect Project, Agent, Session ID, full input and context; approve, deny, answer or return to terminal |
+| Result receipt | See the final outcome and identity after submission; safely revisit the same request |
+| Sessions | See reported projects, task context, agent names and session IDs |
+| Activity | Inspect metadata events and follow request IDs to their available receipts |
+| Channels | Distinguish not configured, unverified, connected and needs-attention states |
+
+**Layout:** the desktop sidebar stays within the viewport and scrolls internally. At narrow widths it becomes normal document content and the page reflows to one column. Long request text wraps; tables can scroll within their container.
+
+**Interaction:** native radio buttons, checkboxes and textareas support questions without client-side scripts. A written answer replaces choices for that question. Validation errors retain answers and selections but never the PIN. Successful submissions redirect to a read-only receipt, so refresh/repeated submission cannot change the original decision.
+
+**Accessibility and feedback:** labelled controls, fieldsets/legends, keyboard focus indicators, a skip link, and status/error announcements are part of the markup. Users explicitly refresh for updates. If a connection fails after sending, the same request link lets them check whether it closed before retrying. There is no offline app shell or streaming update layer.
 
 ## Dashboard
 
@@ -123,7 +244,9 @@ python3 -m mcpulse channel list
 python3 -m mcpulse test
 ```
 
-`test` queues a notification; it does not prove delivery. `doctor` and `status` report daemon/channel state.
+For Telegram, stop the daemon and run `python3 -m mcpulse setup --guided`. Enter the bot token at the hidden prompt and send the displayed one-time code to the bot in a private chat. Restart the daemon, switch to `away`, then try a demo. For Slack, install the optional SDK using the same Python environment (`python3 -m pip install '.[slack]'`), prepare the [Slack configuration](examples/slack.json), and follow the [channel guide](docs/channels/setup.md) before configuring it.
+
+`test` queues a notification; it does not prove delivery. `doctor` and `status` report daemon/channel state. Optional adapters remain **unverified** until a send/update succeeds in the current run. Failed deliveries retry independently, while successful stored references avoid routine resends. Channel cards include agent and session metadata.
 
 Email, WhatsApp links, and actionable ntfy notifications use a separate confirmation listener. Set `web_origin` to your own HTTPS tunnel/reverse-proxy origin pointing to loopback port **7718**. Never expose daemon API port **7717**. GET renders a review page; only a confirmed POST can answer. Links are signed, action-bound, short-lived, and single-use through the request lifecycle. The confirmation listener is not a cloud relay or PWA.
 
@@ -156,6 +279,8 @@ python3 -m venv .venv
 ```
 
 Omit `[slack]` for a core install without runtime dependencies. On Windows use `.venv\Scripts\python` and `.venv\Scripts\mcpulse`. Run directly from source with `python3 -m mcpulse` if you do not want an installation.
+
+The current suite contains **101 tests**, including optional Slack SDK checks. [GitHub CI](https://github.com/pankajneema/MCPulse/actions/workflows/ci.yml) runs Python 3.11 and 3.14 on Linux, macOS and Windows.
 
 Tests use temporary homes, real loopback HTTP, subprocess CLI/MCP sessions, SQLite recovery, signed confirmation pages, and mocked provider transports. They do not send real messages, install services, or alter your Claude settings. Optional Slack tests use its installed SDK without connecting to a workspace.
 

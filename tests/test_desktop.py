@@ -53,7 +53,7 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(kwargs['timeout'], 15)
                 self.assertEqual(kwargs['stderr'], subprocess.DEVNULL)
                 if platform == 'darwin':
-                    self.assertEqual(command, ['/usr/bin/osascript', '-e', MAC_SCRIPT, title, body])
+                    self.assertEqual(command, ['/native/tool', '-e', MAC_SCRIPT, title, body])
                     self.assertNotIn(body, MAC_SCRIPT)
                 elif platform == 'win32':
                     self.assertEqual(command[-1], WINDOWS_SCRIPT)
@@ -64,7 +64,7 @@ class DesktopTests(unittest.TestCase):
                     self.assertIn('&lt;markup&gt; &amp;', command[-1])
 
     def test_missing_desktop_or_tool_does_not_spawn(self):
-        for platform, executable, graphical in (('linux', None, ':0'), ('linux', '/notify-send', ''), ('win32', None, ''), ('unsupported', None, '')):
+        for platform, executable, graphical in (('darwin', None, ''), ('linux', None, ':0'), ('linux', '/notify-send', ''), ('win32', None, ''), ('unsupported', None, '')):
             with self.subTest(platform=platform, executable=executable, graphical=graphical), patch('mcpulse.desktop.sys.platform', platform), patch('mcpulse.desktop.shutil.which', return_value=executable), patch.dict(os.environ, {'DISPLAY':graphical, 'WAYLAND_DISPLAY':''}, clear=True), patch('mcpulse.desktop.subprocess.run') as run:
                 with self.assertRaises(RuntimeError):
                     notify('Title', 'Body')
@@ -72,7 +72,7 @@ class DesktopTests(unittest.TestCase):
 
     def test_native_failure_is_generic_and_timeout_is_bounded(self):
         for failure in (FileNotFoundError('private path'), subprocess.CalledProcessError(1, ['private metadata']), subprocess.TimeoutExpired(['private metadata'], 15)):
-            with self.subTest(failure=type(failure).__name__), patch('mcpulse.desktop.sys.platform', 'darwin'), patch('mcpulse.desktop.subprocess.run', side_effect=failure):
+            with self.subTest(failure=type(failure).__name__), patch('mcpulse.desktop.sys.platform', 'darwin'), patch('mcpulse.desktop.shutil.which', return_value='/native/tool'), patch('mcpulse.desktop.subprocess.run', side_effect=failure):
                 with self.assertRaisesRegex(RuntimeError, '^Desktop notification failed;') as caught:
                     notify('Title', 'Body')
                 self.assertNotIn('private', str(caught.exception))
@@ -110,3 +110,38 @@ class DesktopTests(unittest.TestCase):
         self.assertTrue(self.broker.message_ref('desktop', permission.id))
         self.assertIsNone(self.broker.message_ref('desktop', info.id))
         self.assertEqual(permission.state, 'OPEN')
+
+    def test_status_is_read_only_without_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / 'not-created'
+            output = io.StringIO()
+            with patch('mcpulse.desktop.get_backend', return_value=('Test backend', '/native/tool')), patch('mcpulse.desktop.subprocess.run') as run, contextlib.redirect_stdout(output):
+                code = main(['--home', str(home), 'desktop', 'status'])
+            self.assertEqual(code, 0)
+            self.assertTrue(json.loads(output.getvalue())['available'])
+            run.assert_not_called()
+            self.assertFalse(home.exists())
+
+    def test_sample_notification_is_explicit_without_setup_or_activation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / 'not-created'
+            output = io.StringIO()
+            with patch('mcpulse.desktop.get_backend', return_value=('Test backend', '/native/tool')), patch('mcpulse.desktop.notify') as notify, contextlib.redirect_stdout(output):
+                code = main(['--home', str(home), 'desktop', 'test'])
+            self.assertEqual(code, 0)
+            result = json.loads(output.getvalue())
+            self.assertTrue(result['submitted'])
+            self.assertIn('does not verify', result['note'])
+            notify.assert_called_once_with('MCPulse · Test notification', 'Desktop popup test. No agent request or approval was created.')
+            self.assertFalse(home.exists())
+
+    def test_unavailable_or_failed_sample_has_nonzero_exit_and_no_false_success(self):
+        output = io.StringIO()
+        with patch('mcpulse.desktop.get_backend', side_effect=RuntimeError('Missing notification tool')), patch('mcpulse.desktop.notify') as notify, contextlib.redirect_stdout(output):
+            self.assertEqual(main(['desktop', 'test']), 1)
+        notify.assert_not_called()
+        self.assertFalse(json.loads(output.getvalue())['submitted'])
+        output = io.StringIO()
+        with patch('mcpulse.desktop.get_backend', return_value=('Test backend', '/native/tool')), patch('mcpulse.desktop.notify', side_effect=RuntimeError('Notification failed')), contextlib.redirect_stdout(output):
+            self.assertEqual(main(['desktop', 'test']), 1)
+        self.assertFalse(json.loads(output.getvalue())['submitted'])

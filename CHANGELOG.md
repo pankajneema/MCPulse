@@ -2,6 +2,8 @@
 
 ## 0.3.0a1
 
+- Added `desktop status` for read-only backend diagnostics and `desktop test` for an explicit sample popup, both usable without setup or a running daemon.
+
 - Added opt-in desktop popup notifications for macOS, Windows and graphical Linux sessions, with metadata-only alerts, shared delivery deduplication/retries, configuration validation and dashboard status. Native OS calls are covered by mocks; real desktop verification remains pending.
 
 - Isolated optional-channel send and Slack update failures so one rejected message cannot block later requests; retained successful-send deduplication.

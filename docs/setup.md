@@ -16,6 +16,10 @@ Try the sample permission with **Allow once**, **Deny request**, or **Return to 
 
 For code development, this preview and the tests are enough. The remaining setup steps are optional and change local configuration when you choose to run them.
 
+### Optional desktop check
+
+`python3 -m mcpulse desktop status` checks whether the native notification tool is available without changing settings. `python3 -m mcpulse desktop test` explicitly submits one sample popup; it needs no daemon or setup and does not enable notifications for later requests. OS permissions and Focus settings can still suppress the popup. See [desktop notifications](../README.md#desktop-popups).
+
 ## 2. Run a local workspace
 
 ```sh

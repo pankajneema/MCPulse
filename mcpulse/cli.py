@@ -143,6 +143,8 @@ def parser():
     ui_preview.add_argument("--no-open", action="store_true")
     for name in ("status", "away", "present", "auto", "stop", "restart", "test"):
         commands.add_parser(name)
+    desktop = commands.add_parser("desktop", help="Inspect desktop notification support or send a sample popup")
+    desktop.add_argument("action", choices=["status", "test"], nargs="?", default="status")
     diagnostics = commands.add_parser("doctor", help="Check setup without modifying it")
     diagnostics.add_argument("--settings", type=Path, help="Claude settings file to inspect (defaults to user settings)")
     diagnostics.add_argument("--strict", action="store_true", help="Exit with status 1 when a required setup check fails")
@@ -210,6 +212,19 @@ def main(argv=None):
             from .ui import preview_server
             preview_server(args.port, open_browser=not args.no_open)
             return 0
+        if args.command == "desktop":
+            from .desktop import notify, status
+            result = status()
+            if args.action == "test":
+                result["submitted"] = False
+                if result["available"]:
+                    try:
+                        notify("MCPulse · Test notification", "Desktop popup test. No agent request or approval was created.")
+                        result["submitted"] = True
+                    except RuntimeError as error:
+                        result["detail"] = str(error)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return int(not result["available"] or result.get("submitted") is False)
         if args.command == "doctor":
             try:
                 config = load(directory)

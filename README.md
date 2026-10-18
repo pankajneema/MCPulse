@@ -238,7 +238,21 @@ Keep-awake is opt-in: caffeinate on macOS, systemd-inhibit on Linux, and the Win
 
 ## Desktop popups
 
-Desktop notifications are optional and **off by default**. Enable them for the real local daemon:
+Desktop notifications are optional and **off by default**. Check backend availability without setup, a running daemon, or changing configuration:
+
+```sh
+python3 -m mcpulse desktop status
+```
+
+To explicitly request one sample popup:
+
+```sh
+python3 -m mcpulse desktop test
+```
+
+`status` never displays a notification. `test` submits only a fixed sample message; it creates no agent request, grants no approval and does not enable future notifications. Both return JSON and exit 1 if the backend is unavailable; `test` also exits 1 if submission fails. A successful submission still needs visual confirmation because OS notification settings can suppress it.
+
+Enable notifications for the real local daemon:
 
 ```sh
 python3 -m mcpulse config set desktop_notifications true
@@ -301,7 +315,7 @@ python3 -m venv .venv
 
 Omit `[slack]` for a core install without runtime dependencies. On Windows use `.venv\Scripts\python` and `.venv\Scripts\mcpulse`. Run directly from source with `python3 -m mcpulse` if you do not want an installation.
 
-The current suite contains **107 tests**, including optional Slack SDK checks. [GitHub CI](https://github.com/pankajneema/MCPulse/actions/workflows/ci.yml) runs Python 3.11 and 3.14 on Linux, macOS and Windows.
+The current suite contains **110 tests**, including optional Slack SDK checks. [GitHub CI](https://github.com/pankajneema/MCPulse/actions/workflows/ci.yml) runs Python 3.11 and 3.14 on Linux, macOS and Windows.
 
 Tests use temporary homes, real loopback HTTP, subprocess CLI/MCP sessions, SQLite recovery, signed confirmation pages, and mocked provider transports. They do not send real messages, install services, or alter your Claude settings. Optional Slack tests use its installed SDK without connecting to a workspace.
 

@@ -31,25 +31,47 @@ try {
 }'''
 
 
+def get_backend():
+    """Read-only capability check; never prompts for OS permissions."""
+    if sys.platform == 'darwin':
+        name, executable = 'macOS notifications', shutil.which('/usr/bin/osascript')
+    elif sys.platform == 'win32':
+        name, executable = 'Windows notification icon', shutil.which('powershell.exe')
+    elif sys.platform.startswith('linux'):
+        name, executable = 'Linux notifications', shutil.which('notify-send')
+        if not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
+            raise RuntimeError('Desktop notifications require a graphical session (DISPLAY or WAYLAND_DISPLAY)')
+    else:
+        raise RuntimeError('Desktop notifications are unsupported on this platform')
+    if not executable:
+        raise RuntimeError({'darwin':'Desktop notifications require osascript',
+                            'win32':'Desktop notifications require Windows PowerShell'}.get(sys.platform, 'Desktop notifications require notify-send'))
+    return name, executable
+
+
+def status():
+    result = {'platform':sys.platform, 'available':False,
+              'note':'Availability does not verify notification permissions or that a popup will be displayed.'}
+    try:
+        name, executable = get_backend()
+        result.update(available=True, backend=name, executable=executable)
+    except RuntimeError as error:
+        result['detail'] = str(error)
+    return result
+
+
 def notify(title, body):
     """Submit an alert; success does not prove the OS displayed it."""
+    _, executable = get_backend()
     env = dict(os.environ)
     if sys.platform == 'darwin':
-        command = ['/usr/bin/osascript', '-e', MAC_SCRIPT, title, body]
+        command = [executable, '-e', MAC_SCRIPT, title, body]
     elif sys.platform == 'win32':
-        executable = shutil.which('powershell.exe')
-        if not executable:
-            raise RuntimeError('Desktop notifications require Windows PowerShell')
         # Payload stays in environment data, never in executable script text.
         env.update(MCPULSE_NOTICE_TITLE=title, MCPULSE_NOTICE_BODY=body)
         command = [executable, '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', WINDOWS_SCRIPT]
-    elif sys.platform.startswith('linux'):
-        executable = shutil.which('notify-send')
-        if not executable or not (env.get('DISPLAY') or env.get('WAYLAND_DISPLAY')):
-            raise RuntimeError('Desktop notifications require notify-send and a graphical session')
-        command = [executable, '--app-name=MCPulse', '--expire-time=5000', '--', title, html.escape(body)]
     else:
-        raise RuntimeError('Desktop notifications are unsupported on this platform')
+        command = [executable, '--app-name=MCPulse', '--expire-time=5000', '--', title, html.escape(body)]
     try:
         subprocess.run(command, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, check=True, timeout=15)

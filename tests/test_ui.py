@@ -96,6 +96,19 @@ class DashboardTests(unittest.TestCase):
         self.assertIn('You’re all caught up', self.get('/ui?view=requests&q=nomatch')[1])
         self.assertEqual(request.state, 'OPEN')
 
+    def test_agent_and_session_metadata_are_visible_searchable_and_escaped(self):
+        self.login()
+        request = self.broker.open({**payload(session="session-unique"), "agent":"opencode"})
+        detail = self.get('/ui/request/' + request.id)[1]
+        self.assertIn('<dt>Agent</dt><dd>OpenCode</dd>', detail)
+        self.assertIn('<dt>Session ID</dt><dd>session-unique</dd>', detail)
+        for search in ('OpenCode', 'session-unique'):
+            self.assertIn(request.id, self.get('/ui?view=requests&q=' + search)[1])
+        unsafe = self.broker.open({**payload(), "agent":"<script>unsafe</script>"})
+        detail = self.get('/ui/request/' + unsafe.id)[1]
+        self.assertNotIn('<script>', detail)
+        self.assertIn('&lt;script&gt;', detail)
+
     def test_high_risk_pin_and_confirmation(self):
         self.broker.config.update(pin_salt='ab'*16, pin_hash=pin_hash('123456','ab'*16))
         csrf = self.login()

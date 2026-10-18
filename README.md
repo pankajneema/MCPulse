@@ -60,6 +60,18 @@ The default hook is a Python command that submits once and polls. It can reconne
 
 Use `--settings /absolute/project/.claude/settings.local.json` for project-local hooks. `mcp install --scope project` registers project MCP configuration through the installed Claude CLI. MCP and long hook timeouts must still be verified against your actual Claude version and environment.
 
+## Check setup without installing anything
+
+```sh
+python3 -m mcpulse doctor
+python3 -m mcpulse doctor --settings .claude/settings.local.json
+python3 -m mcpulse doctor --strict --settings .claude/settings.local.json
+```
+
+`doctor` is read-only and works even before `setup`: missing or invalid configuration produces a repair hint. With a valid config, it checks the daemon and the selected Claude settings file. It detects missing/duplicate events, disabled hooks, stale command paths or HTTP credentials/ports, incorrect matchers, changed timeouts, and asynchronous permission hooks. It never prints stored credentials.
+
+The default settings path is `~/.claude/settings.json`; pass `--settings` for project hooks. This checks that file only, not Claude's merged user/project/managed settings or account login. After installing or changing hooks, restart Claude and check its `/hooks` menu. Normal `doctor` exits successfully after producing its report; `--strict` exits 1 if a required check fails. An unavailable idle sensor is optional because explicit away/present modes work without it.
+
 ## Reply
 
 ```sh
@@ -144,3 +156,7 @@ Omit `[slack]` for a core install without runtime dependencies. On Windows use `
 Tests use temporary homes, real loopback HTTP, subprocess CLI/MCP sessions, SQLite recovery, signed confirmation pages, and mocked provider transports. They do not send real messages, install services, or alter your Claude settings. Optional Slack tests use its installed SDK without connecting to a workspace.
 
 The [original brief](docs/product-spec.md) is preserved. The user-requested Python stack supersedes its TypeScript/Bun choice. Hosted auth/relay/PWA, multi-machine accounts, teams, billing, other agent adapters, release signing, and external validation remain tracked separately; they are not represented as completed features.
+
+### Agent labels and session IDs
+
+Request details show the agent and Session ID. Claude hooks default to `Claude CLI`; MCP requests use the client name from initialization and an MCPulse-generated connection session ID. API callers can provide an optional `agent` string (1–100 characters), such as `claude-cli`, `claude-cowork`, or `opencode`. Names are display metadata supplied by the sender, not verified identities or proof of a dedicated integration. Cowork/OpenCode adapters are not installed or implied by these labels.

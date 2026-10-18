@@ -15,6 +15,25 @@ class BrokerTests(unittest.TestCase):
         self.broker = Broker(":memory:", "away", timeout=10)
         self.addCleanup(self.broker.close)
 
+    def test_agent_metadata_defaults_aliases_and_notifications(self):
+        from mcpulse.server import dispatch
+        for agent, label in ((None, "Claude CLI"), ("claude-cowork", "Claude Cowork"), ("opencode", "OpenCode")):
+            event = payload()
+            if agent is not None:
+                event["agent"] = agent
+            self.assertEqual(self.broker.open(event).card["agent"], label)
+            self.broker.session_event({**event, "hook_event_name": "SessionStart"})
+            self.assertEqual(self.broker.status()["sessions"][0]["agent"], label)
+        dispatch(self.broker, {**payload(), "hook_event_name": "Notification", "message": "Waiting"})
+        self.assertEqual(list(self.broker.pending.values())[-1].card["agent"], "Claude CLI")
+        request = self.broker.open({**payload(), "hook_event_name": "MCP", "kind": "question"})
+        self.assertEqual(request.card["agent"], "MCP client")
+
+    def test_invalid_agent_metadata_is_rejected(self):
+        for agent in (None, [], {}, 123, "", "  ", "a" * 101):
+            with self.subTest(agent=agent), self.assertRaises(RequestError):
+                self.broker.open({**payload(), "agent": agent})
+
     def test_allow_reaches_hook(self):
         request = self.broker.open(payload())
         self.broker.answer(request.id, "allow", "local")

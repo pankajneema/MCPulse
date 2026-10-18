@@ -110,24 +110,20 @@ def save_config(directory, config):
     private_write(directory / "config.json", json.dumps(config, indent=2) + "\n")
 
 
-def doctor(config, directory):
-    findings = []
+def doctor(config, directory, settings=None):
+    settings = (settings or Path.home() / ".claude" / "settings.json").expanduser().resolve()
+    findings = [{"check": "configuration", "ok": True, "path": str(directory / "config.json")}]
     try:
-        status = api(config, "/api/status")
+        status = api(config, "/api/status", timeout=2)
         findings.append({"check": "daemon", "ok": True, "detail": status["presence"]})
         findings.extend({"check": name, "ok": state == "connected", "detail": state} for name, state in status.get("channels", {}).items())
-    except ConnectionError:
-        findings.append({"check": "daemon", "ok": False, "fix": "python -m mcpulse start"})
-    settings = Path.home() / ".claude" / "settings.json"
-    try:
-        data = json.loads(settings.read_text())
-        enabled = not data.get("disableAllHooks", False)
-        installed = [hook for groups in data.get("hooks", {}).values() for group in groups for hook in group.get("hooks", []) if hooks.owned(hook)]
-        matches = enabled and len(installed) == len(hooks.EVENTS)
-        findings.append({"check": "user hooks", "ok": matches, "fix": "python -m mcpulse hooks install" if not matches else "Restart Claude after changes"})
-    except (OSError, ValueError, AttributeError, TypeError):
-        findings.append({"check": "user hooks", "ok": False, "fix": "python -m mcpulse hooks install"})
-    findings.append({"check": "idle sensor", "ok": idle_seconds() is not None, "fix": "Use explicit away/present if your desktop does not expose idle time"})
+    except (ConnectionError, ValueError):
+        findings.append({"check": "daemon", "ok": False, "detail": "Daemon unavailable or configuration does not match the running daemon", "fix": "Start or restart MCPulse using this configuration"})
+    hook_check = hooks.check_installation(settings, config, bridge(directory))
+    findings.append({"check": "Claude hooks", "settings": str(settings), **hook_check,
+                     "fix": "Restart Claude after hook changes" if hook_check["ok"] else "Run hooks install --settings with this settings path"})
+    findings.append({"check": "idle sensor", "ok": idle_seconds() is not None, "optional": True,
+                     "fix": "Use explicit away/present if your desktop does not expose idle time"})
     return findings
 
 
@@ -145,8 +141,11 @@ def parser():
     ui_preview = commands.add_parser("preview", help="Run an isolated dashboard with sample data")
     ui_preview.add_argument("--port", type=int, default=7720)
     ui_preview.add_argument("--no-open", action="store_true")
-    for name in ("status", "doctor", "away", "present", "auto", "stop", "restart", "test"):
+    for name in ("status", "away", "present", "auto", "stop", "restart", "test"):
         commands.add_parser(name)
+    diagnostics = commands.add_parser("doctor", help="Check setup without modifying it")
+    diagnostics.add_argument("--settings", type=Path, help="Claude settings file to inspect (defaults to user settings)")
+    diagnostics.add_argument("--strict", action="store_true", help="Exit with status 1 when a required setup check fails")
     demo = commands.add_parser("demo")
     demo.add_argument("--kind", choices=["permission", "question", "finished"], default="permission")
     audit = commands.add_parser("audit")
@@ -211,6 +210,19 @@ def main(argv=None):
             from .ui import preview_server
             preview_server(args.port, open_browser=not args.no_open)
             return 0
+        if args.command == "doctor":
+            try:
+                config = load(directory)
+            except FileNotFoundError:
+                result = [{"check": "configuration", "ok": False, "path": str(directory / "config.json"),
+                           "detail": "Configuration is missing", "fix": "python -m mcpulse setup"}]
+            except (OSError, ValueError, TypeError, AttributeError):
+                result = [{"check": "configuration", "ok": False, "path": str(directory / "config.json"),
+                           "detail": "Configuration is unreadable, invalid, or not private", "fix": "Repair the configuration file and its permissions"}]
+            else:
+                result = doctor(config, directory, args.settings)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return int(args.strict and any(not row["ok"] and not row.get("optional") for row in result))
         config = load(directory)
         if args.command == "ui":
             url = api(config, "/api/ui-login", {})["url"]
@@ -280,8 +292,6 @@ def main(argv=None):
                 writer.writeheader()
                 writer.writerows(result)
                 return 0
-        elif args.command == "doctor":
-            result = doctor(config, directory)
         elif args.command in {"away", "present", "auto"}:
             result = api(config, "/api/presence", {"mode": args.command})
         elif args.command in {"mute", "unmute"}:

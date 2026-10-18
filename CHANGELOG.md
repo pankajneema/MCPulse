@@ -2,6 +2,10 @@
 
 ## 0.3.0a1
 
+- Show agent names and explicit Session IDs in request details, lists, and sessions; retain MCP client names.
+
+- Added read-only, project-aware setup diagnostics, stale/duplicate hook detection, and strict diagnostic exit codes.
+
 - Fixed loopback startup dependency on reverse DNS, bounded CLI startup polling, and portable service-path CI checks.
 
 - Added a Python-rendered local dashboard with request review, search/filtering, native question forms, follow-ups, sessions, channels, presence, and activity.

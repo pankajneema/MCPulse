@@ -111,6 +111,8 @@ class MCPTests(unittest.TestCase):
         while not self.broker.pending and time.monotonic() < deadline:
             time.sleep(0.01)
         rid = next(iter(self.broker.pending))
+        self.assertEqual(self.broker.pending[rid].card["agent"], "test")
+        self.assertTrue(self.broker.pending[rid].card["session"].startswith("mcp-"))
         self.broker.answer(rid, "allow", "local", confirmed=True)
         result = self.output.get(timeout=3)
         self.assertTrue(json.loads(result["result"]["content"][0]["text"])["approved"])

@@ -28,6 +28,7 @@ def serve(config, input_stream=None, output_stream=None):
     active = {}
     initialized = False
     ready = False
+    agent = "MCP client"
     session = "mcp-" + secrets.token_hex(8)
     executor = ThreadPoolExecutor(max_workers=4)
 
@@ -47,7 +48,7 @@ def serve(config, input_stream=None, output_stream=None):
             field = {"ask_human": "question", "request_approval": "action", "notify_human": "message"}.get(name)
             if field is None or not isinstance(args.get(field), str) or not 0 < len(args[field]) <= 4000:
                 raise ValueError("Unknown tool or invalid required text")
-            payload = {"hook_event_name": "MCP", "session_id": session, "cwd": str(Path.cwd()),
+            payload = {"hook_event_name": "MCP", "session_id": session, "agent": agent, "cwd": str(Path.cwd()),
                        "kind": {"ask_human": "question", "request_approval": "permission", "notify_human": "notification"}[name],
                        "message": args[field]}
             if name == "ask_human":
@@ -100,6 +101,12 @@ def serve(config, input_stream=None, output_stream=None):
             if rid is None:
                 continue
             if method == "initialize" and not initialized:
+                client = params.get("clientInfo", {})
+                name = client.get("name") if isinstance(client, dict) else None
+                if name is not None and (not isinstance(name, str) or not name.strip() or len(name) > 100):
+                    error(rid, -32602, "Invalid client name")
+                    continue
+                agent = name or "MCP client"
                 initialized = True
                 send({"jsonrpc": "2.0", "id": rid, "result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
                       "serverInfo": {"name": "mcpulse", "version": __version__}}})

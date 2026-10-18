@@ -192,7 +192,7 @@ class Broker:
             kind = {"PermissionRequest": "permission", "PreToolUse": "question", "Stop": "finished"}.get(event, payload.get("kind", "notification"))
             context = extract(payload, preview) if self.config.get("context", True) else {}
             card = {"id": request_id, "project": preview(payload["cwd"], 300),
-                    "session": preview(payload["session_id"], 100), "tool": preview(payload.get("tool_name", kind), 100),
+                    "agent": agent_name(payload), "session": preview(payload["session_id"], 100), "tool": preview(payload.get("tool_name", kind), 100),
                     "input": rendered, "risk": risk, "kind": kind, "context": context,
                     "can_allow": original == rendered and all(preview(payload[k], cap) == payload[k] for k, cap in (("cwd", 300), ("session_id", 100))),
                     "can_remember": event == "PermissionRequest" and signature(payload) is not None,
@@ -329,7 +329,7 @@ class Broker:
             sid = payload["session_id"]
             old = self.db.execute("SELECT data FROM sessions WHERE id=?", (sid,)).fetchone()
             data = json.loads(old[0]) if old else {"id": preview(sid, 100), "started": time.time()}
-            data.update(project=preview(payload["cwd"], 300), updated=time.time(), state=payload["hook_event_name"])
+            data.update(agent=agent_name(payload), project=preview(payload["cwd"], 300), updated=time.time(), state=payload["hook_event_name"])
             if "prompt" in payload:
                 data["task"] = preview(str(payload["prompt"]), 600)
             with self.db:
@@ -378,7 +378,7 @@ class Broker:
                 return
             counts = dict(self.db.execute("SELECT state,count(*) FROM audit WHERE at>? AND state!='OPEN' GROUP BY state", (time.time() - 86400,)))
             message = "MCPulse daily digest: " + (", ".join(f"{state.lower()}: {count}" for state, count in counts.items()) or "No decisions in the last 24 hours.")
-            queued = self.open({"hook_event_name": "MCP", "session_id": "daily-digest", "cwd": str(self.directory or Path.cwd()), "kind": "notification", "message": message})
+            queued = self.open({"hook_event_name": "MCP", "session_id": "daily-digest", "agent": "MCPulse", "cwd": str(self.directory or Path.cwd()), "kind": "notification", "message": message})
             if isinstance(queued, Pending):
                 with self.db:
                     self.db.execute("INSERT OR REPLACE INTO metadata VALUES ('digest_date',?)", (today,))
@@ -394,9 +394,19 @@ class Broker:
             self.db.close()
 
 
+def agent_name(payload):
+    """Display metadata only; the sender's name does not establish trust."""
+    name = payload.get("agent", "MCP client" if payload.get("hook_event_name") == "MCP" else "Claude CLI").strip()
+    aliases = {"claude-cli": "Claude CLI", "claude-code": "Claude CLI", "claude code": "Claude CLI",
+               "claude-cowork": "Claude Cowork", "claude cowork": "Claude Cowork", "opencode": "OpenCode"}
+    return preview(aliases.get(name.lower(), name), 100)
+
+
 def validate_event(payload):
     if not isinstance(payload, dict):
         raise RequestError("Expected an object")
+    if "agent" in payload and (not isinstance(payload["agent"], str) or not payload["agent"].strip() or len(payload["agent"]) > 100):
+        raise RequestError("Invalid agent name")
     event = payload.get("hook_event_name")
     if event == "PermissionRequest":
         return validate_hook(payload)

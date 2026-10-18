@@ -44,7 +44,7 @@ def project_name(path):
 
 
 def request_title(card):
-    return {'permission': card['tool'] + ' needs approval', 'question': 'Claude has a question',
+    return {'permission': card['tool'] + ' needs approval', 'question': card.get('agent', 'Agent') + ' has a question',
             'finished': 'Ready for your next step', 'notification': 'Session update'}.get(card['kind'], 'Review request')
 
 
@@ -62,7 +62,7 @@ def input_text(card):
 
 
 def card_details(card, *, show_questions=True):
-    body = '<dl><dt>Project</dt><dd>' + esc(card['project']) + '</dd><dt>Session</dt><dd>' + esc(card['session']) + '</dd></dl>'
+    body = '<dl><dt>Project</dt><dd>' + esc(card['project']) + '</dd><dt>Agent</dt><dd>' + esc(card.get('agent', 'Unknown agent')) + '</dd><dt>Session ID</dt><dd>' + esc(card['session']) + '</dd></dl>'
     raw = '<pre class="request-preview">' + esc(card['input']) + '</pre>'
     body += '<details><summary>Full request</summary>' + raw + '</details>' if card.get('questions') else raw
     for question in card.get('questions', []) if show_questions else []:
@@ -266,13 +266,13 @@ class Dashboard:
             preview = card.get('questions', [{}])[0].get('question', '') if card.get('questions') else input_text(card)
             if len(preview) > 240:
                 preview = preview[:240] + '…'
-            result += '<article class="request"><div class="request-head"><div><h3>' + esc(request_title(card)) + '</h3><div class="request-meta">' + esc(project_name(card['project'])) + ' &nbsp;·&nbsp; ' + esc(card['tool']) + '</div></div><span class="tag ' + esc(tag) + '">' + esc(label) + '</span></div><pre class="request-preview">' + esc(preview) + '</pre><div class="request-foot"><span class="muted small">Waiting · ' + age(card['created']) + '</span><a class="button secondary" href="/ui/request/' + esc(card['id']) + '">Review request ↗</a></div></article>'
+            result += '<article class="request"><div class="request-head"><div><h3>' + esc(request_title(card)) + '</h3><div class="request-meta">' + esc(project_name(card['project'])) + ' &nbsp;·&nbsp; ' + esc(card.get('agent', 'Unknown agent')) + ' &nbsp;·&nbsp; ' + esc(card['tool']) + '</div></div><span class="tag ' + esc(tag) + '">' + esc(label) + '</span></div><pre class="request-preview">' + esc(preview) + '</pre><div class="request-foot"><span class="muted small">Waiting · ' + age(card['created']) + '</span><a class="button secondary" href="/ui/request/' + esc(card['id']) + '">Review request ↗</a></div></article>'
         return result
 
     def session_list(self, sessions):
         if not sessions:
             return '<div class="empty"><strong>No sessions yet</strong>Sessions appear after Claude sends a session hook.</div>'
-        return ''.join('<div class="session"><h3>' + esc(project_name(s['project'])) + '</h3><p class="small muted">' + esc(s.get('task', 'Session started')) + '</p><code>' + esc(s['id']) + '</code><p class="small muted">Last seen ' + age(s['updated']) + '</p></div>' for s in sorted(sessions, key=lambda s:s['updated'], reverse=True))
+        return ''.join('<div class="session"><h3>' + esc(project_name(s['project'])) + '</h3><p class="small muted">' + esc(s.get('task', 'Session started')) + '</p><p class="small muted">Agent: ' + esc(s.get('agent', 'Unknown agent')) + '</p><span class="small muted">Session ID: </span><code>' + esc(s['id']) + '</code><p class="small muted">Last seen ' + age(s['updated']) + '</p></div>' for s in sorted(sessions, key=lambda s:s['updated'], reverse=True))
 
     def activity(self, events):
         if not events:
@@ -290,7 +290,7 @@ class Dashboard:
         if view not in {'overview', 'requests', 'sessions', 'activity', 'channels'}:
             raise RequestError('Unknown dashboard view')
         title = {'overview':'Your workspace', 'requests':'Pending requests', 'sessions':'Sessions', 'activity':'Activity', 'channels':'Channels'}[view]
-        subtitles = {'overview':'Step away. Stay in the loop.', 'requests':'A little human judgment goes a long way.', 'sessions':'The latest updates from your connected Claude sessions.', 'activity':'A record of requests and the decisions that moved them forward.', 'channels':'Your paths from a waiting session to an answer.'}
+        subtitles = {'overview':'Step away. Stay in the loop.', 'requests':'A little human judgment goes a long way.', 'sessions':'The latest updates from your connected agent sessions.', 'activity':'A record of requests and the decisions that moved them forward.', 'channels':'Your paths from a waiting session to an answer.'}
         body = '<div class="hero"><div><div class="eyebrow">' + ('Command center' if view == 'overview' else 'Workspace / ' + esc(view)) + '</div><h1>' + title + '</h1><p class="muted">' + subtitles[view] + '</p></div><a class="button secondary" href="/ui?' + esc(urlencode(query)) + '">↻ &nbsp; Refresh</a></div>'
         if query.get('notice') == 'saved':
             body += '<div class="notice" role="status">Saved. Your workspace is up to date.</div>'
@@ -304,8 +304,8 @@ class Dashboard:
             body += '<div class="split"><div><section class="panel"><div class="panel-head"><h2>Waiting for you <span class="count">' + str(len(cards)) + '</span></h2><a class="small muted" href="/ui?view=requests">View all →</a></div>' + self.request_list(cards[:5]) + '</section><section class="panel"><div class="panel-head"><h2>Recent activity</h2><a class="small muted" href="/ui?view=activity">View all →</a></div>' + self.activity(events[:5]) + '</section></div><aside class="aside">' + presence + mute + '<section class="panel"><div class="panel-head"><h2>Sessions</h2><a class="small muted" href="/ui?view=sessions">All →</a></div>' + self.session_list(state['sessions'][:3]) + '</section></aside></div>'
         elif view == 'requests':
             search, kind = query.get('q', '')[:200], query.get('kind', '')
-            body += '<form class="toolbar" method="get" action="/ui"><input type="hidden" name="view" value="requests"><input aria-label="Search requests" name="q" placeholder="Search project, tool, or request…" value="' + esc(search) + '"><select aria-label="Request type" name="kind">' + ''.join('<option value="' + value + '"' + (' selected' if value == kind else '') + '>' + label + '</option>' for value,label in [('', 'All requests'),('permission','Permissions'),('question','Questions'),('finished','Completed'),('notification','Notifications')]) + '</select><button class="secondary">Filter</button></form>'
-            cards = [c for c in cards if (not kind or c['kind'] == kind) and search.lower() in (c['project'] + c['tool'] + c['input']).lower()]
+            body += '<form class="toolbar" method="get" action="/ui"><input type="hidden" name="view" value="requests"><input aria-label="Search requests" name="q" placeholder="Search agent, session, project, or request…" value="' + esc(search) + '"><select aria-label="Request type" name="kind">' + ''.join('<option value="' + value + '"' + (' selected' if value == kind else '') + '>' + label + '</option>' for value,label in [('', 'All requests'),('permission','Permissions'),('question','Questions'),('finished','Completed'),('notification','Notifications')]) + '</select><button class="secondary">Filter</button></form>'
+            cards = [c for c in cards if (not kind or c['kind'] == kind) and search.lower() in ' '.join((c['project'], c['tool'], c['input'], c.get('agent', ''), c['session'])).lower()]
             body += '<section class="panel">' + self.request_list(cards) + '</section>'
         elif view == 'sessions':
             body += '<section class="panel">' + self.session_list(state['sessions']) + '</section>'
@@ -352,7 +352,7 @@ def preview_server(port=7720, *, open_browser=True):
     if not 0 <= port <= 65535:
         raise ValueError('Port must be between 0 and 65535')
     broker = Broker(':memory:', 'away', timeout=86400, config={'context': False, 'stop_timeout': 86400})
-    base = {'session_id':'demo-mcpulse', 'cwd':'/demo/MCPulse'}
+    base = {'agent':'claude-cli', 'session_id':'demo-mcpulse', 'cwd':'/demo/MCPulse'}
     broker.session_event({**base, 'hook_event_name':'UserPromptSubmit', 'prompt':'Build the Python dashboard and verify the approval flow.'})
     broker.session_event({'session_id':'demo-docs', 'cwd':'/demo/documentation', 'hook_event_name':'UserPromptSubmit', 'prompt':'Update the setup guide for the next release.'})
     completed = broker.open({**base, 'hook_event_name':'PermissionRequest', 'tool_name':'Bash', 'tool_input':{'command':'git diff --stat'}})

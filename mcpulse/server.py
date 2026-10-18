@@ -6,7 +6,7 @@ from socketserver import TCPServer
 import json
 import threading
 
-from .core import Broker, RequestError, Pending, validate_event, preview
+from .core import Broker, RequestError, Pending, validate_event, preview, agent_name
 
 MAX_BODY = 65536
 
@@ -192,7 +192,7 @@ def dispatch(broker, payload, request_id=None):
         import time
         if broker.presence == "present" or time.time() < broker.muted_until:
             return {}
-        notification = {**payload, "hook_event_name": "MCP", "kind": "notification",
+        notification = {**payload, "agent": agent_name(payload), "hook_event_name": "MCP", "kind": "notification",
                         "message": str(payload.get("message", payload.get("error", "Permission denied")))}
         broker.open(notification, request_id)
         return {}

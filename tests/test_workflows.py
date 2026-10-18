@@ -154,11 +154,18 @@ class PersistenceTests(unittest.TestCase):
             self.assertIsNone(signature(payload(cmd)))
 
     def test_service_definitions_are_user_scoped(self):
-        for platform in ("darwin", "linux", "win32"):
-            path, text = definition(platform, Path("/private/example space"), Path("/home/user"))
-            self.assertIn("run_mcpulse.py", text)
-            self.assertNotIn("sudo", text)
-            self.assertTrue(str(path).startswith(("/home/user", "/private/example")))
+        directory, user_home = Path("/private/example space"), Path("/home/user")
+        expected = {
+            "darwin": user_home / "Library/LaunchAgents/dev.mcpulse.daemon.plist",
+            "linux": user_home / ".config/systemd/user/mcpulse.service",
+            "win32": directory / "task.xml",
+        }
+        for platform, expected_path in expected.items():
+            with self.subTest(platform=platform):
+                path, text = definition(platform, directory, user_home)
+                self.assertIn("run_mcpulse.py", text)
+                self.assertNotIn("sudo", text)
+                self.assertEqual(path, expected_path)
 
 class DigestRecoveryTests(unittest.TestCase):
     def test_digest_is_once_per_day_across_restart(self):

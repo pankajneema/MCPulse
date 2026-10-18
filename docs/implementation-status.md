@@ -1,6 +1,6 @@
 # Implementation status — 0.3.0a1
 
-Verification on the development Mac: 92 tests passed in the isolated Python 3.14 environment, including the optional Slack SDK checks; compileall and pip dependency checks passed. Provider transports were mocked. The dashboard was checked in the embedded browser at desktop and narrow viewport sizes, including a successful sample approval.
+Verification on the development Mac: 95 tests passed in the isolated Python 3.14 environment, including the optional Slack SDK checks; compileall and pip dependency checks passed. Provider transports were mocked. The dashboard was checked in the embedded browser at desktop and narrow viewport sizes, including a successful sample approval and a question reply/receipt at a narrow viewport.
 
 Cross-platform checks run on GitHub for Python 3.11 and 3.14 on macOS, Windows, and Linux; see the [latest CI results](https://github.com/pankajneema/MCPulse/actions/workflows/ci.yml).
 
@@ -26,7 +26,7 @@ This file distinguishes implemented code from external validation and later prod
 | WhatsApp | Cloud API outbound messages/template option, signed webhook verification, sender/freshness/replay checks | Meta credentials, approved template, real provider limits/cost checks |
 | Escalation/quiet hours | Per-channel send delay and time-window suppression for optional adapters | Complex risk-dependent ladders and team routing |
 | Digest/audit | Daily optional digest, JSON/CSV audit, configurable retention | User studies and larger workload testing |
-| Local dashboard | Python-rendered responsive views, full request review, native question controls, follow-ups, agent names and Session IDs, presence/mute, session/channel state, activity, one-time login and CSRF protection; disposable preview | Explicit refresh (no streaming); local computer only; no account/PWA/remote dashboard |
+| Local dashboard | Python-rendered responsive views, full request review, native question controls, follow-ups, agent names and Session IDs, result receipts and safe retries, presence/mute, session/channel state, activity, one-time login and CSRF protection; disposable preview | Explicit refresh (no streaming); local computer only; no account/PWA/remote dashboard |
 | Web confirmations | Separate listener; expiring, action-bound tokens; GET safe; POST confirmation; PIN high-risk | HTTPS hosting/tunnel and security review; not a PWA |
 | Secret handling | Protected POSIX files, best-effort redaction, no payload logging | OS keychain, Windows ACL hardening, full 50-format corpus and external audit |
 | Hosted product | Deployment choice requested from user | OAuth/device login, encrypted relay, PWA/Web Push, multi-machine accounts, billing and operations are not implemented |

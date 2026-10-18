@@ -2,6 +2,9 @@
 
 ## 0.3.0a1
 
+- Added persistent result receipts with agent/session metadata, explicit closed/expired states, safe duplicate form submissions, status-first retry guidance, and preserved validation input.
+- Added a preview-first setup and recovery guide.
+
 - Show agent names and explicit Session IDs in request details, lists, and sessions; retain MCP client names.
 
 - Added read-only, project-aware setup diagnostics, stale/duplicate hook detection, and strict diagnostic exit codes.

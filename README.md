@@ -6,6 +6,8 @@ Python 3.11+ implementation of the local MCPulse workflows. Version **0.3.0a1** 
 
 No Node or Bun. The core and Telegram use the Python standard library; optional Slack support uses the official Python Slack SDK.
 
+For a step-by-step preview, local setup, and recovery walkthrough, read the [setup guide](docs/setup.md).
+
 ## Start
 
 ```sh
@@ -42,6 +44,8 @@ python3 -m mcpulse ui
 ```
 
 The dashboard provides request search/filtering; full input/context review; allow, deny, and return-to-terminal actions; native question choices and written answers; follow-up/Done; session status; channel health; presence; notification pause; and metadata activity history. High-risk approval requires both your configured PIN and explicit confirmation. Presence and mute changes apply to the running daemon. Credentials and channel configuration remain in the CLI.
+
+After an answer, the request link shows a result receipt with its agent, Session ID, and final status. Duplicate submissions keep the first decision. Validation errors retain written answers and selected options, but never the PIN. Activity IDs link back to requests/receipts. Completed receipts are available for up to 24 hours. “Reply saved” confirms local storage, not delivery to an agent. If a connection fails, reopen the same request to check its status before retrying.
 
 The UI uses Python-rendered HTML/CSS and native browser forms, without JavaScript, Node, a frontend build, or additional runtime dependencies. Refresh to fetch new requests; it does not stream updates. The one-time login link expires after 60 seconds; an authenticated browser session lasts eight hours or until Lock/restart. If login expires, run `ui` again. The localhost dashboard is for this computer, not a remote phone endpoint or installable PWA. Phone confirmation links use the separate HTTPS listener described below.
 
@@ -140,7 +144,7 @@ python3 -m mcpulse config set daily_digest_hour 18
 
 Context reads at most the tail of a JSONL transcript beneath `~/.claude`, plus a local Git branch lookup. It shows recent task/message/steps when that evidence is available. No arbitrary transcript path outside Claude's directory is read. Redaction is best-effort.
 
-Configuration defaults to `~/.config/mcpulse`; `MCPULSE_HOME` or `--home /path` changes it. POSIX configuration/token/state files are private; no OS keychain integration or Windows ACL hardening is claimed. Audit is metadata only, with a configurable 30-day default retention. Open request payloads are stored in private SQLite for recovery, then logically cleared on completion; completed hook responses remain for at most 24 hours to support retry. **Pending payloads and returned answers can contain secrets**; protect this directory and its backups. SQLite/WAL snapshots may retain deleted bytes. Read [SECURITY.md](SECURITY.md).
+Configuration defaults to `~/.config/mcpulse`; `MCPULSE_HOME` or `--home /path` changes it. POSIX configuration/token/state files are private; no OS keychain integration or Windows ACL hardening is claimed. Audit is metadata only, with a configurable 30-day default retention. Open request payloads are stored in private SQLite for recovery, then logically cleared on completion; minimal receipt metadata (request ID, project, agent, session) and completed hook responses remain for at most 24 hours to support retry. **Pending payloads and returned answers can contain secrets**; protect this directory and its backups. SQLite/WAL snapshots may retain deleted bytes. Read [SECURITY.md](SECURITY.md).
 
 ## Install and test
 

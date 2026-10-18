@@ -226,9 +226,10 @@ class Broker:
             if action == "always":
                 self.db.execute("INSERT OR IGNORE INTO remembered VALUES (?,?)", (request.payload["cwd"], signature(request.payload)))
             self._audit(request.id, state, source)
-            # Raw input is retained only while a request is open. Replies expire after one day.
-            self.db.execute("UPDATE requests SET payload='{}',card='{}',state=?,response=?,expires=? WHERE id=?",
-                            (state, json.dumps(response), time.time() + 86400, request.id))
+            # Keep only receipt metadata after completion; receipts/replies expire after one day.
+            receipt = {k: request.card[k] for k in ("id", "project", "session", "agent") if k in request.card}
+            self.db.execute("UPDATE requests SET payload='{}',card=?,state=?,response=?,expires=? WHERE id=?",
+                            (json.dumps(receipt), state, json.dumps(response), time.time() + 86400, request.id))
         request.state, request.response = state, response
         self.pending.pop(request.id, None)
         request.event.set()
@@ -280,6 +281,13 @@ class Broker:
             if request.id in self.pending:
                 self._finish(request, "deny", "timeout", "MCPulse timed out; continue other safe work.", "TIMED_OUT")
             return request.response
+
+    def request_status(self, request_id):
+        """Dashboard metadata without exposing stored answers or raw payloads."""
+        with self.lock:
+            self.tick()
+            row = self.db.execute("SELECT state,card FROM requests WHERE id=?", (request_id,)).fetchone()
+            return {"state": row[0], "card": json.loads(row[1])} if row else None
 
     def result(self, request_id):
         with self.lock:

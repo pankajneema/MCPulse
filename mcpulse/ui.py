@@ -4,6 +4,8 @@ import html
 import json
 from http.cookies import SimpleCookie, CookieError
 import secrets
+import re
+import sqlite3
 import threading
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -129,6 +131,7 @@ class Dashboard:
         if handler.headers.get('Host') != self.origin.removeprefix('http://'):
             self.send(handler, 403, standalone('Access denied', '<p>Use the local dashboard URL from the CLI.</p>'))
             return True
+        data = {}
         try:
             if handler.command == 'GET' and url.path == '/ui/login':
                 ticket = parse_qs(url.query, max_num_fields=2).get('ticket', [''])[0]
@@ -174,24 +177,43 @@ class Dashboard:
                         self.sessions.pop(token, None)
                     self.send(handler, 303, location='/ui', cookie='')
                     return True
-                self.act(url.path, data)
-                self.send(handler, 303, location='/ui?notice=saved')
+                if url.path == '/ui/answer':
+                    rid = data.get('id', '')
+                    if not re.fullmatch(r'[a-f0-9]{16,64}', rid):
+                        raise RequestError('Invalid request ID')
+                    try:
+                        self.act(url.path, data)
+                    except RequestError as error:
+                        record = broker.request_status(rid)
+                        if record and record['state'] == 'OPEN':
+                            self.send(handler, 400, self.detail(record['card'], session[1], error=str(error), values=data))
+                            return True
+                        if not record:
+                            self.send(handler, 404, self.unavailable(session[1]))
+                            return True
+                    self.send(handler, 303, location='/ui/request/' + rid)
+                else:
+                    self.act(url.path, data)
+                    self.send(handler, 303, location='/ui?notice=saved')
                 return True
             if url.path in {'/', '/ui'}:
                 query = parse_qs(url.query, max_num_fields=6)
                 content = self.render(session[1], {k:v[0] for k,v in query.items()})
             elif url.path.startswith('/ui/request/'):
                 rid = url.path.rsplit('/', 1)[-1]
-                with broker.lock:
-                    request = broker.pending.get(rid)
-                    if not request:
-                        raise RequestError('This request is already answered or expired.')
-                    card = dict(request.card)
-                content = self.detail(card, session[1])
+                record = broker.request_status(rid)
+                if not record:
+                    self.send(handler, 404, self.unavailable(session[1]))
+                    return True
+                content = self.detail(record['card'], session[1]) if record['state'] == 'OPEN' else self.receipt(rid, record, session[1])
             else:
                 self.send(handler, 404, standalone('Page not found', '<a class="button" href="/ui">Back to dashboard</a>'))
                 return True
             self.send(handler, 200, content)
+        except (OSError, sqlite3.Error):
+            rid = data.get('id', url.path.rsplit('/', 1)[-1] if url.path.startswith('/ui/request/') else '')
+            target = '/ui/request/' + rid if re.fullmatch(r'[a-f0-9]{16,64}', rid) else '/ui'
+            self.send(handler, 503, standalone('Could not confirm the result', '<p>The connection or storage is temporarily unavailable. Your answer may already be saved. Check the request status before trying again.</p><a class="button" href="' + target + '">Check status / retry</a>'))
         except (ValueError, UnicodeError, CookieError) as error:
             self.send(handler, 400, standalone('Cannot complete request', '<p>' + esc(error) + '</p><a class="button secondary" href="/ui">Back to dashboard</a>'))
         return True
@@ -214,7 +236,9 @@ class Dashboard:
             with broker.lock:
                 request = broker.pending.get(rid)
                 if not request:
-                    raise RequestError('This request is already answered or expired.')
+                    if broker.request_status(rid):
+                        return
+                    raise RequestError('Unknown request.')
                 if action == 'text' and data.get('question_form') == '1':
                     answers = {}
                     for index, question in enumerate(request.payload.get('tool_input', {}).get('questions', [])):
@@ -277,7 +301,7 @@ class Dashboard:
     def activity(self, events):
         if not events:
             return '<div class="empty"><strong>No activity yet</strong>Decisions will appear here as requests are reviewed.</div>'
-        rows = ''.join('<tr><td><span class="tag">' + esc(e['state'].replace('_', ' ').lower()) + '</span></td><td><code>' + esc(e['id']) + '</code></td><td>' + esc(e['source']) + '</td><td>' + esc(datetime.fromtimestamp(e['at']).strftime('%d %b, %H:%M:%S')) + '</td></tr>' for e in events)
+        rows = ''.join('<tr><td><span class="tag">' + esc(e['state'].replace('_', ' ').lower()) + '</span></td><td><a href="/ui/request/' + esc(e['id']) + '"><code>' + esc(e['id']) + '</code></a></td><td>' + esc(e['source']) + '</td><td>' + esc(datetime.fromtimestamp(e['at']).strftime('%d %b, %H:%M:%S')) + '</td></tr>' for e in events)
         return '<div class="table-wrap"><table><thead><tr><th>Event</th><th>Request</th><th>Source</th><th>Local time</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
 
     def channels(self, health):
@@ -315,14 +339,38 @@ class Dashboard:
             body += '<section class="panel">' + self.channels(state['channels']) + '</section><div class="notice">Connect channels from the CLI using <code>python -m mcpulse channel</code>. Credentials are kept out of this dashboard.</div>'
         return self.layout(title, body, csrf, view)
 
-    def detail(self, card, csrf):
+    def unavailable(self, csrf):
+        return self.layout('Request unavailable', '<div class="notice" role="status">This request is unknown or its receipt has expired. Completed receipts are kept for up to 24 hours.</div><a class="button secondary" href="/ui?view=requests">Back to requests</a>', csrf, 'requests')
+
+    def receipt(self, rid, record, csrf):
+        title, message = {
+            'ANSWERED': ('Reply saved', 'Your reply is available to the waiting agent. This confirms it was saved; agent delivery is not confirmed.'),
+            'ALLOWED': ('Approval saved', 'The approval is available to the waiting agent. This does not confirm that the action ran.'),
+            'DENIED': ('Request denied', 'This request was denied. No approval was granted.'),
+            'HANDED_BACK': ('Returned to terminal', 'Remote review is closed. Continue in the original agent session.'),
+            'TIMED_OUT': ('Request expired', 'The response deadline passed. No approval was granted. Continue in the original agent session.'),
+            'CANCELLED': ('Request cancelled', 'The session ended or the request was cancelled. No approval was granted.'),
+            'STOPPED': ('Stop saved', 'The stop response is available to the waiting agent.'),
+            'DONE': ('Marked done', 'This request is complete. No further reply is needed.'),
+        }.get(record['state'], ('Request closed', 'This request is no longer waiting for a reply.'))
+        card = record['card']
+        body = '<div class="detail"><div class="hero"><h1>' + esc(title) + '</h1></div><section class="panel"><div class="panel-body"><div class="notice" role="status">' + message + '</div><dl>'
+        for label, value in (('Project', card.get('project', 'Unavailable')), ('Agent', card.get('agent', 'Unknown agent')), ('Session ID', card.get('session', 'Unavailable')), ('Request ID', rid)):
+            body += '<dt>' + label + '</dt><dd>' + esc(value) + '</dd>'
+        body += '</dl><p class="small muted">The first decision is final. Submitting again will not send another answer. This receipt is available for up to 24 hours.</p><div class="actions"><a class="button" href="/ui?view=requests">Back to requests</a><a class="button secondary" href="/ui?view=activity">View activity</a></div></div></section></div>'
+        return self.layout(title, body, csrf, 'requests')
+
+    def detail(self, card, csrf, *, error='', values=None):
+        values = values or {}
         kind = card['kind']
         body = '<div class="detail"><a class="muted small" href="/ui?view=requests">← Back to requests</a><div class="hero"><div><div class="eyebrow">Request review</div><h1>' + esc(request_title(card)) + '</h1><p class="muted">' + esc(project_name(card['project'])) + ' · ' + age(card['created']) + '</p></div></div><section class="panel"><div class="panel-body">' + card_details(card, show_questions=False)
+        if error:
+            body += '<div class="notice warning" role="alert">' + esc(error) + '</div>'
         body += '<form method="post" action="/ui/answer">' + self.hidden(csrf) + '<input type="hidden" name="id" value="' + esc(card['id']) + '">'
         if kind == 'permission':
             if card['risk'] == 'high':
                 body += '<div class="notice warning">High-risk action. Review the full command before approving.</div><label for="pin">Approval PIN (required to allow)</label><input id="pin" type="password" name="pin" autocomplete="off" inputmode="numeric"><label><input type="checkbox" name="confirm" value="yes">I have reviewed this high-risk action.</label><p class="small muted">Set your PIN with <code>python -m mcpulse pin set</code>, then restart the daemon.</p>'
-            body += '<label for="reply">Reason for denying (optional)</label><textarea id="reply" name="reply" rows="2" maxlength="4000" placeholder="Explain what Claude should do instead…"></textarea><div class="actions"><button name="action" value="allow"' + ('' if card['can_allow'] else ' disabled') + '>Allow once</button><button class="danger" name="action" value="deny">Deny request</button>'
+            body += '<label for="reply">Reason for denying (optional)</label><textarea id="reply" name="reply" rows="2" maxlength="4000" placeholder="Explain what the agent should do instead…">' + esc(values.get('reply', '')) + '</textarea><div class="actions"><button name="action" value="allow"' + ('' if card['can_allow'] else ' disabled') + '>Allow once</button><button class="danger" name="action" value="deny">Deny request</button>'
         elif kind in {'question', 'finished'}:
             if card.get('questions'):
                 body += '<input type="hidden" name="question_form" value="1">'
@@ -331,17 +379,17 @@ class Dashboard:
                     if question.get('multiSelect'):
                         body += '<p class="muted small">Choose all that apply.</p>'
                     for number, option in enumerate(question.get('options', [])):
-                        body += '<label class="choice"><input type="' + ('checkbox' if question.get('multiSelect') else 'radio') + '" name="choice_' + str(index) + '" value="' + str(number) + '">' + esc(option['label']) + '</label>'
-                    body += '<label for="custom_' + str(index) + '">' + ('Or write your own answer' if question.get('options') else 'Your answer') + '</label><textarea id="custom_' + str(index) + '" name="custom_' + str(index) + '" rows="2" maxlength="1000"></textarea></fieldset>'
+                        body += '<label class="choice"><input type="' + ('checkbox' if question.get('multiSelect') else 'radio') + '" name="choice_' + str(index) + '" value="' + str(number) + '"' + (' checked' if str(number) in values.get('_choices', {}).get('choice_' + str(index), []) else '') + '>' + esc(option['label']) + '</label>'
+                    body += '<label for="custom_' + str(index) + '">' + ('Or write your own answer' if question.get('options') else 'Your answer') + '</label><textarea id="custom_' + str(index) + '" name="custom_' + str(index) + '" rows="2" maxlength="1000">' + esc(values.get('custom_' + str(index), '')) + '</textarea></fieldset>'
                 body += '<p class="small muted">A written answer replaces the selected options for that question.</p>'
             else:
-                body += '<label for="reply">' + ('Your answer' if kind == 'question' else 'Follow-up instructions') + '</label><textarea id="reply" name="reply" rows="4" maxlength="4000" placeholder="Write your reply…"></textarea>'
+                body += '<label for="reply">' + ('Your answer' if kind == 'question' else 'Follow-up instructions') + '</label><textarea id="reply" name="reply" rows="4" maxlength="4000" placeholder="Write your reply…">' + esc(values.get('reply', '')) + '</textarea>'
             body += '<div class="actions"><button name="action" value="text"' + ('' if card['can_allow'] else ' disabled') + '>Send reply</button>'
             if kind == 'finished':
                 body += '<button class="secondary" name="action" value="done">Done</button>'
         else:
             body += '<div class="actions"><button name="action" value="done">Mark as read</button>'
-        body += '<button class="secondary" name="action" value="handback">Return to terminal</button></div></form></div></section></div>'
+        body += '<button class="secondary" name="action" value="handback">Return to terminal</button></div></form><p class="small muted">If the connection drops after sending, <a href="/ui/request/' + esc(card['id']) + '">check this request’s status</a> before trying again.</p></div></section></div>'
         return self.layout('Review request', body, csrf, 'requests')
 
 

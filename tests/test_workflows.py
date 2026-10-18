@@ -141,7 +141,14 @@ class PersistenceTests(unittest.TestCase):
                 self.assertEqual(second.result(request.id)["state"], "ALLOWED")
                 self.assertEqual(second.open(payload(), "a" * 32)["hookSpecificOutput"]["decision"]["behavior"], "allow")
                 row = second.db.execute("SELECT payload,card FROM requests WHERE id=?", (request.id,)).fetchone()
-                self.assertEqual(row, ("{}", "{}"))
+                self.assertEqual(row[0], "{}")
+                receipt = second.request_status(request.id)
+                self.assertEqual(set(receipt["card"]), {"id", "agent", "session", "project"})
+                self.assertEqual(receipt["card"]["session"], "test-session")
+                self.assertNotIn("git status", row[1])
+                second.close()
+                second = Broker(path, "away", config={"context": False})
+                self.assertEqual(second.request_status(request.id), receipt)
             finally:
                 second.close()
 

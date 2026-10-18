@@ -4,6 +4,7 @@ import re
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, build_opener, ProxyHandler, HTTPCookieProcessor
@@ -77,7 +78,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(request.state, 'OPEN')
         self.assertEqual(self.get('/ui/answer', body, {'X-Test':'no-origin'})[0], 200)
         self.assertEqual(request.state, 'ALLOWED')
-        self.assertEqual(self.get('/ui/answer', body)[0], 400)
+        self.assertEqual(self.get('/ui/answer', body)[0], 200)
         self.assertEqual(len([e for e in self.broker.audit() if e['state']=='ALLOWED']), 1)
 
     def test_views_filter_escape_and_empty_state(self):
@@ -174,3 +175,66 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(self.get('/ui/answer', pairs)[0],200)
         answers = request.response['hookSpecificOutput']['updatedInput']['answers']
         self.assertEqual(answers, {'Pick a version':'2','Choose features':'Approvals, Questions','Any notes?':'Ship it'})
+
+    def test_closed_receipts_cover_outcomes_and_expire(self):
+        csrf = self.login()
+        for action, title in (('allow', 'Approval saved'), ('deny', 'Request denied'), ('handback', 'Returned to terminal')):
+            request = self.broker.open(payload())
+            status, body, _ = self.get('/ui/answer', {'csrf':csrf, 'id':request.id, 'action':action})
+            self.assertEqual(status, 200)
+            self.assertIn(title, body)
+            self.assertIn('Claude CLI', body)
+            self.assertIn('test-session', body)
+            self.assertNotIn('name="action"', body)
+            self.assertNotIn('git status', body)
+            # A conflicting retry cannot replace the winning response.
+            repeated = self.get('/ui/answer', {'csrf':csrf, 'id':request.id, 'action':'allow'})
+            self.assertIn(title, repeated[1])
+            self.assertEqual(len([e for e in self.broker.audit() if e['id']==request.id and e['state']!='OPEN']), 1)
+        expired = self.broker.open(payload())
+        expired.deadline = time.monotonic() - 1
+        self.assertIn('Request expired', self.get('/ui/request/' + expired.id)[1])
+        cancelled = self.broker.open(payload())
+        self.broker.cancel_session(cancelled.session)
+        self.assertIn('Request cancelled', self.get('/ui/request/' + cancelled.id)[1])
+        with self.broker.lock, self.broker.db:
+            self.broker.db.execute("UPDATE requests SET expires=0 WHERE id=?", (expired.id,))
+        self.assertEqual(self.get('/ui/request/' + expired.id)[0], 404)
+        self.assertIn('receipt has expired', self.get('/ui/request/' + expired.id)[1])
+
+    def test_validation_preserves_escaped_answers_and_choices(self):
+        csrf = self.login()
+        questions = [{'question':'Choose', 'options':[{'label':'One'}]}, {'question':'Notes?', 'options':[]}]
+        request = self.broker.open({**payload(), 'hook_event_name':'PreToolUse', 'tool_name':'AskUserQuestion', 'tool_input':{'questions':questions}})
+        form = {'csrf':csrf, 'id':request.id, 'action':'text', 'question_form':'1', 'choice_0':'0', 'custom_0':'</textarea><script>bad</script>'}
+        status, body, _ = self.get('/ui/answer', form)
+        self.assertEqual(status, 400)
+        self.assertIn('role="alert"', body)
+        self.assertIn('Answer every question', body)
+        self.assertIn('value="0" checked', body)
+        self.assertIn('&lt;/textarea&gt;&lt;script&gt;bad', body)
+        self.assertNotIn('<script>', body)
+        self.assertEqual(request.state, 'OPEN')
+        status, body, _ = self.get('/ui/answer', {**form, 'custom_1':'Ready'})
+        self.assertEqual(status, 200)
+        self.assertIn('Reply saved', body)
+        self.assertIn('agent delivery is not confirmed', body)
+
+    def test_uncertain_failure_checks_status_before_retry(self):
+        csrf = self.login()
+        for saved in (False, True):
+            request = self.broker.open(payload())
+            answer = self.broker.answer
+            def fail(*args, **kwargs):
+                if saved:
+                    answer(*args, **kwargs)
+                raise ConnectionError('private diagnostic must not leak')
+            with patch.object(self.broker, 'answer', side_effect=fail):
+                status, body, _ = self.get('/ui/answer', {'csrf':csrf, 'id':request.id, 'action':'allow'})
+            self.assertEqual(status, 503)
+            self.assertIn('Check status / retry', body)
+            self.assertIn('/ui/request/' + request.id, body)
+            self.assertNotIn('private diagnostic', body)
+            status, body, _ = self.get('/ui/request/' + request.id)
+            self.assertEqual(status, 200)
+            self.assertIn('Approval saved' if saved else 'Allow once', body)

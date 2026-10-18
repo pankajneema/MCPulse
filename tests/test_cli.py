@@ -22,9 +22,15 @@ class CLITests(unittest.TestCase):
             config["permission_timeout"] = 10
             private_write(root / "config.json", json.dumps(config))
             env = {**os.environ, "MCPULSE_HOME": directory}
-            command = [sys.executable, "-m", "mcpulse"]
+            command = [sys.executable, "-c",
+                       "import faulthandler, runpy; "
+                       "faulthandler.dump_traceback_later(5); "
+                       "runpy.run_module('mcpulse', run_name='__main__')"]
             def run(*args):
-                return subprocess.run([*command, *args], env=env, text=True, capture_output=True, timeout=10)
+                try:
+                    return subprocess.run([*command, *args], env=env, text=True, capture_output=True, timeout=10)
+                except subprocess.TimeoutExpired as error:
+                    self.fail(f"CLI {args} timed out: {error.stderr!r}")
             daemon = subprocess.Popen([*command, "start"], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             demo = None
             try:
